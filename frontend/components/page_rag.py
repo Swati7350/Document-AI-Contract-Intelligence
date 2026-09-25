@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from processors import rag as rag_proc
 
 EXAMPLE_QUESTIONS = [
-    "What is the grand total?",
-    "Who is the vendor?",
-    "What items were purchased?",
+    "What is the total amount?",
+    "How many products were purchased?",
+    "What is the quantity of Coca-Cola?",
     "What are the payment terms?",
     "What is the invoice number?",
 ]
@@ -46,7 +46,7 @@ def render() -> None:
     )
 
     if is_demo:
-        st.info("📄 Sample document loaded: **ACME Industrial Supplies — Purchase Invoice (INV-2026-0147)**. Upload your own document via the sidebar to chat with it.")
+        st.info("📄 Sample document: **Beverage Sales Invoice — INV-2026-1048** (Beverage Distribution Co.). Upload your own PDF or image to chat with it instead.")
 
     # ── Example questions ─────────────────────────────────────────────────────
     st.markdown(
