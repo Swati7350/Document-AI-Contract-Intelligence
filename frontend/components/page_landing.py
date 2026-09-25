@@ -65,41 +65,6 @@ def render() -> None:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── How it works ──────────────────────────────────────────────────────────
-    st.markdown("""
-<div class="lp-how">
-  <div class="lp-how-title">How it works</div>
-  <div class="lp-steps-row">
-
-    <div class="lp-step">
-      <div class="lp-step-num">1</div>
-      <div class="lp-step-icon">📤</div>
-      <div class="lp-step-label">Upload document</div>
-      <div class="lp-step-desc">Drop any PDF, scanned image, or multi-page contract.</div>
-    </div>
-
-    <div class="lp-step-arrow">→</div>
-
-    <div class="lp-step">
-      <div class="lp-step-num">2</div>
-      <div class="lp-step-icon">⚙️</div>
-      <div class="lp-step-label">Choose OCR or RAG</div>
-      <div class="lp-step-desc">Run structured extraction or start a Q&A chat session.</div>
-    </div>
-
-    <div class="lp-step-arrow">→</div>
-
-    <div class="lp-step">
-      <div class="lp-step-num">3</div>
-      <div class="lp-step-icon">✅</div>
-      <div class="lp-step-label">Get results &amp; citations</div>
-      <div class="lp-step-desc">Structured JSON fields or answers with source chunk citations.</div>
-    </div>
-
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
     # ── Demo notice ───────────────────────────────────────────────────────────
     st.markdown("""
 <div class="lp-notice">
