@@ -6,3 +6,5 @@ python-dotenv==1.0.1
 requests==2.32.3
 chromadb==0.5.3
 numpy==1.26.4
+pypdf==4.3.1
+reportlab==4.2.2

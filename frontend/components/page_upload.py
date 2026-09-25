@@ -20,6 +20,19 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
+    # ── Sample PDF download ───────────────────────────────────────────────────
+    sample_path = Path(__file__).parent.parent.parent / "assets" / "sample_beverage_invoice.pdf"
+    if sample_path.exists():
+        col_dl, _ = st.columns([2, 3])
+        with col_dl:
+            st.download_button(
+                label="⬇️  Download sample PDF to try",
+                data=sample_path.read_bytes(),
+                file_name="sample_beverage_invoice.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
     uploaded = st.file_uploader(
         "file",
         type=["pdf", "png", "jpg", "jpeg"],
