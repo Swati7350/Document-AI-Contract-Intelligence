@@ -1,0 +1,52 @@
+PURCHASE INVOICE
+
+ACME Industrial Supplies Pvt. Ltd.
+Plot No. 12, Phase II, Okhla Industrial Area
+New Delhi - 110020, India
+Phone: +91 11 4172 9988
+Email: sales@acmeind.com
+Website: www.acmeind.com
+
+Invoice No.     : INV-2026-0147
+PO Number       : PO-45892
+Invoice Date    : 24 Sep 2026
+Payment Terms   : 30 Days
+Vendor GSTIN    : 07AABCU9603R1ZV
+
+Bill To:
+Paras Engg Works
+Plot No. 23, Sector 8
+New Delhi - 110077, India
+GSTIN: 07AAACP1234C1Z8
+State: Delhi (07)
+
+Ship To:
+Paras Engg Works
+Plot No. 23, Sector 8
+New Delhi - 110077, India
+State: Delhi (07)
+
+Items:
+S.No. | Item Description            | Qty | Unit Price (₹) | Amount (₹)
+------|-----------------------------|-----|----------------|----------
+1     | Centrifugal Blower Impeller | 2   | 12,500         | 25,000
+2     | Industrial V-Belt B45       | 5   | 480            | 2,400
+3     | Motor Mounting Bracket      | 3   | 1,150          | 3,450
+4     | Powder Coating Service      | 1   | 2,800          | 2,800
+
+Subtotal    : ₹ 33,650
+GST (18%)   : ₹ 6,057
+Grand Total : ₹ 39,707
+
+Amount in Words: Rupees Thirty Nine Thousand Seven Hundred Seven Only
+
+Stamp: PAID — 25 SEP 2026
+
+Terms & Conditions:
+1. Goods once sold will not be taken back.
+2. Warranty as per manufacturer's terms.
+3. Payment within 30 days from the date of invoice.
+4. Subject to Delhi jurisdiction only.
+
+For ACME Industrial Supplies Pvt. Ltd.
+Authorized Signatory

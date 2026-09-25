@@ -12,20 +12,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from processors import rag as rag_proc
 
 EXAMPLE_QUESTIONS = [
-    "What is the termination clause?",
-    "What is the payment schedule?",
-    "Who is the supplier?",
-    "When does the contract expire?",
-    "What is the governing law?",
+    "What is the grand total?",
+    "Who is the vendor?",
+    "What items were purchased?",
+    "What are the payment terms?",
+    "What is the invoice number?",
 ]
 
 
 def render() -> None:
     # ── Ensure something is embedded ─────────────────────────────────────────
     if not st.session_state.get("doc_embedded"):
-        from processors.ocr import _mock_process
-        demo = _mock_process("demo_contract.pdf")
-        rag_proc.embed_document(demo["full_text"], "demo_contract")
+        from processors.rag import embed_sample_doc
+        with st.spinner("Loading sample invoice…"):
+            embed_sample_doc()
         st.session_state.doc_embedded   = True
         st.session_state.chat_history   = []
         st.session_state._rag_is_demo   = True
@@ -46,7 +46,7 @@ def render() -> None:
     )
 
     if is_demo:
-        st.info("No document uploaded — using a built-in demo contract. Upload your own via the sidebar.")
+        st.info("📄 Sample document loaded: **ACME Industrial Supplies — Purchase Invoice (INV-2026-0147)**. Upload your own document via the sidebar to chat with it.")
 
     # ── Example questions ─────────────────────────────────────────────────────
     st.markdown(

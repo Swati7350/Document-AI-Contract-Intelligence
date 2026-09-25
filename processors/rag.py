@@ -1,110 +1,226 @@
 """
-Contract RAG processor.
-Mock mode: simple keyword search over text chunks.
-Real mode: FAISS + OpenAI embeddings.
+Contract RAG processor — ChromaDB vector store.
+──────────────────────────────────────────────────────────────────
+Vector store    : ChromaDB in-memory  (no server, no API key)
+Embeddings      : ChromaDB default (ONNX all-MiniLM-L6-v2, bundled)
+Chunking        : word-window 150 words / 30-word overlap
+Retrieval       : Top-3 chunks by cosine distance
+Generation      : sentence extraction from chunks (mock mode)
+                  OpenAI GPT (set ENABLE_REAL_LLM=true + OPENAI_API_KEY)
+
+Sample doc      : assets/sample_invoice.txt  (ACME Purchase Invoice)
+                  Loaded only when no document has been uploaded.
+──────────────────────────────────────────────────────────────────
 """
 from __future__ import annotations
-import os, re, time, random
+
+import os
+import re
+import time
+from pathlib import Path
 from typing import List
 
 ENABLE_REAL_LLM = os.getenv("ENABLE_REAL_LLM", "false").lower() == "true"
+SAMPLE_DOC_PATH = Path(__file__).parent.parent / "assets" / "sample_invoice.txt"
 
-# ── In-memory store (replaced by FAISS in real mode) ─────────────────────────
-_CHUNKS: List[dict] = []
-_DOC_TEXT: str = ""
+# ── In-memory ChromaDB client (lazy-init) ─────────────────────────────────────
+_client     = None
+_collection = None
+_doc_id: str = ""
+_chunks: List[dict] = []
 
+
+def _get_collection():
+    global _client, _collection
+    if _collection is None:
+        import chromadb
+        _client = chromadb.Client()          # pure in-memory, no persistence
+        _collection = _client.get_or_create_collection(
+            name="doc_chunks",
+            metadata={"hnsw:space": "cosine"},
+        )
+    return _collection
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def embed_document(text: str, doc_id: str) -> dict:
-    """Chunk document and store for retrieval."""
-    global _CHUNKS, _DOC_TEXT
-    _DOC_TEXT = text
-    chunks = _chunk_text(text)
-    _CHUNKS = [{"id": i, "doc_id": doc_id, "text": c} for i, c in enumerate(chunks)]
-    return {"chunks_created": len(_CHUNKS), "doc_id": doc_id}
+    """
+    Chunk text, embed with ChromaDB's default model, store in-memory.
+    Wipes any previously stored document first.
+    """
+    global _collection, _doc_id, _chunks
+
+    # Reset collection so uploaded doc fully replaces the previous one
+    if _client is not None and _collection is not None:
+        try:
+            _client.delete_collection("doc_chunks")
+        except Exception:
+            pass
+        _collection = None
+
+    col = _get_collection()
+    _doc_id = doc_id
+
+    raw = _chunk_text(text, size=150, overlap=30)
+    _chunks = [{"id": i, "doc_id": doc_id, "text": c} for i, c in enumerate(raw)]
+
+    col.add(
+        documents=[c["text"] for c in _chunks],
+        ids=[f"{doc_id}_{c['id']}" for c in _chunks],
+        metadatas=[{"doc_id": doc_id, "chunk_id": c["id"]} for c in _chunks],
+    )
+
+    return {"chunks_created": len(_chunks), "doc_id": doc_id}
+
+
+def embed_sample_doc() -> dict:
+    """Load and embed the bundled ACME invoice sample document."""
+    if SAMPLE_DOC_PATH.exists():
+        text = SAMPLE_DOC_PATH.read_text(encoding="utf-8")
+    else:
+        # Minimal inline fallback
+        text = (
+            "PURCHASE INVOICE. ACME Industrial Supplies Pvt. Ltd. "
+            "Invoice No: INV-2026-0147. Invoice Date: 24 Sep 2026. "
+            "Bill To: Paras Engg Works, New Delhi. "
+            "Items: Centrifugal Blower Impeller x2 ₹25,000; "
+            "Industrial V-Belt B45 x5 ₹2,400; "
+            "Motor Mounting Bracket x3 ₹3,450; "
+            "Powder Coating Service x1 ₹2,800. "
+            "Subtotal ₹33,650. GST 18% ₹6,057. Grand Total ₹39,707. "
+            "Payment Terms: 30 Days. Vendor GSTIN: 07AABCU9603R1ZV. "
+            "Stamp: PAID 25 Sep 2026."
+        )
+    return embed_document(text, "sample_invoice")
 
 
 def query(question: str) -> dict:
-    """Retrieve relevant chunks and generate an answer."""
-    if not _CHUNKS:
-        return {"answer": "No document embedded yet. Please upload and process a document first.", "chunks": []}
+    """Retrieve Top-3 relevant chunks and generate an answer."""
+    col = _get_collection()
+    if col.count() == 0:
+        return {
+            "answer": "No document has been processed yet. Please upload a document and click Start RAG.",
+            "retrieved_chunks": [],
+        }
+
+    top_chunks = _retrieve(question, top_k=3)
+
     if ENABLE_REAL_LLM:
-        return _real_query(question)
-    return _mock_query(question)
+        return _llm_answer(question, top_chunks)
+    return _synthesise_answer(question, top_chunks)
 
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
 
-def _chunk_text(text: str, size: int = 400, overlap: int = 80) -> List[str]:
+def _chunk_text(text: str, size: int = 150, overlap: int = 30) -> List[str]:
     words = text.split()
-    chunks, i = [], 0
+    if not words:
+        return [text]
+    result, i = [], 0
     while i < len(words):
-        chunks.append(" ".join(words[i:i + size]))
+        result.append(" ".join(words[i : i + size]))
         i += size - overlap
-    return chunks or [text]
+    return result
 
 
-# ── Mock ──────────────────────────────────────────────────────────────────────
+# ── ChromaDB retrieval ────────────────────────────────────────────────────────
 
-_MOCK_ANSWERS = {
-    "terminat": {
-        "answer": "Either party may terminate this Agreement upon **30 days written notice**. The Client may terminate immediately for cause if the Supplier materially breaches the agreement.",
-        "chunks": [4],
-    },
-    "payment":  {
-        "answer": "The Client shall pay the Supplier a **monthly fee of USD 12,500**, payable within **30 days** of invoice receipt. The total contract value is USD 150,000 over 12 months.",
-        "chunks": [1],
-    },
-    "supplier": {
-        "answer": "The Supplier is **TechSolutions Ltd**, represented by **Sarah Johnson (Director)**.",
-        "chunks": [0],
-    },
-    "expir":    {
-        "answer": "The Agreement expires on **December 31, 2025** unless earlier terminated by either party per the termination clause.",
-        "chunks": [2],
-    },
-    "confiden": {
-        "answer": "Each party agrees to keep confidential all proprietary information disclosed by the other party during the term of the Agreement and for **3 years thereafter**.",
-        "chunks": [3],
-    },
-    "govern":   {
-        "answer": "This Agreement is governed by the laws of the **State of California, USA**.",
-        "chunks": [3],
-    },
-}
+def _retrieve(question: str, top_k: int = 3) -> List[dict]:
+    col = _get_collection()
+    k   = min(top_k, col.count())
+    res = col.query(query_texts=[question], n_results=k)
 
-
-def _mock_query(question: str) -> dict:
-    time.sleep(0.6)
-    q_lower = question.lower()
-    matched = None
-    for keyword, ans in _MOCK_ANSWERS.items():
-        if keyword in q_lower:
-            matched = ans
-            break
-
-    if not matched:
-        matched = {
-            "answer": "Based on the contract, the relevant clause states that both parties have agreed to the terms as outlined in this Service Agreement dated January 1, 2024.",
-            "chunks": [0, 1],
-        }
-
-    # Pull actual chunk texts
     retrieved = []
-    for cid in matched["chunks"]:
-        if cid < len(_CHUNKS):
-            retrieved.append(_CHUNKS[cid])
-        elif _CHUNKS:
-            retrieved.append(_CHUNKS[0])
+    for i, doc_text in enumerate(res["documents"][0]):
+        meta = res["metadatas"][0][i]
+        retrieved.append({
+            "id":     meta.get("chunk_id", i),
+            "doc_id": meta.get("doc_id", _doc_id),
+            "text":   doc_text,
+        })
+    return retrieved if retrieved else ([_chunks[0]] if _chunks else [])
+
+
+# ── Answer synthesis (no external calls) ─────────────────────────────────────
+
+def _synthesise_answer(question: str, chunks: List[dict]) -> dict:
+    """
+    Extract the best-matching sentences from the retrieved chunk text.
+    Answer is derived entirely from the uploaded document.
+    """
+    time.sleep(0.2)
+
+    combined  = " ".join(c["text"] for c in chunks)
+    sentences = re.split(r"(?<=[.!\?\n])\s+", combined)
+    q_words   = set(re.findall(r"[a-z0-9₹]+", question.lower()))
+
+    scored = []
+    for sent in sentences:
+        sent = sent.strip()
+        if len(sent) < 15:
+            continue
+        s_words = set(re.findall(r"[a-z0-9₹]+", sent.lower()))
+        overlap = len(q_words & s_words) / (len(q_words) + 1)
+        scored.append((overlap, sent))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best = [s for _, s in scored[:3] if s]
+
+    if best:
+        answer = " ".join(best)
+        if len(answer) > 700:
+            answer = answer[:700].rsplit(" ", 1)[0] + "…"
+    else:
+        answer = "This information is not available in the uploaded document."
 
     return {
-        "answer": matched["answer"],
-        "retrieved_chunks": retrieved,
-        "model": "mock",
-        "tokens_used": random.randint(180, 320),
+        "answer":           answer,
+        "retrieved_chunks": chunks,
+        "model":            "chromadb + MiniLM",
+        "doc_id":           _doc_id,
     }
 
 
-# ── Real (stub) ───────────────────────────────────────────────────────────────
+# ── Real LLM path ─────────────────────────────────────────────────────────────
 
-def _real_query(question: str) -> dict:
-    raise NotImplementedError("Real RAG not wired yet.")
+def _llm_answer(question: str, chunks: List[dict]) -> dict:
+    try:
+        import openai
+
+        context    = "\n\n---\n\n".join(
+            f"[Chunk {c['id'] + 1}]\n{c['text']}" for c in chunks
+        )
+        system_msg = (
+            "You are a document analysis assistant. "
+            "Answer ONLY from the context provided. "
+            "If the answer is not in the context say exactly: "
+            "'This information is not available in the uploaded document.' "
+            "Be concise and cite the chunk number."
+        )
+        client = openai.OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        )
+        resp = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user",   "content": f"Context:\n{context}\n\nQuestion: {question}"},
+            ],
+            temperature=0,
+            max_tokens=400,
+        )
+        return {
+            "answer":           resp.choices[0].message.content.strip(),
+            "retrieved_chunks": chunks,
+            "model":            "openai",
+            "tokens_used":      resp.usage.total_tokens,
+            "doc_id":           _doc_id,
+        }
+    except Exception as exc:
+        return {
+            "answer":           f"LLM error: {exc}",
+            "retrieved_chunks": chunks,
+            "model":            "openai-error",
+        }
