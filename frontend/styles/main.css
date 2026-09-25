@@ -114,3 +114,106 @@ pre.json-body { padding:18px 20px; font-family:'SF Mono','Fira Code',monospace; 
 /* ── Text input ── */
 .stTextInput > div > div > input { border-radius:10px !important; border:1.5px solid #e2e8f0 !important; }
 .stTextInput > div > div > input:focus { border-color:#3b82f6 !important; box-shadow:0 0 0 3px rgba(59,130,246,.12) !important; }
+
+/* ══════════════════════════════════════════════════════
+   REDESIGNED LANDING PAGE
+   ══════════════════════════════════════════════════════ */
+
+/* ── Hero (clean white-on-blue, centred) ── */
+.lp-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0f172a 100%);
+    border-radius: 20px;
+    padding: 64px 48px 52px;
+    text-align: center;
+    margin-bottom: 36px;
+    position: relative;
+    overflow: hidden;
+}
+.lp-hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at 65% 40%, rgba(59,130,246,.14) 0%, transparent 60%);
+    pointer-events: none;
+}
+.lp-hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(59,130,246,.18); border: 1px solid rgba(59,130,246,.35);
+    color: #93c5fd; font-size: 11px; font-weight: 600; padding: 5px 16px;
+    border-radius: 999px; margin-bottom: 22px;
+    text-transform: uppercase; letter-spacing: .06em;
+}
+.lp-hero-title {
+    font-size: clamp(2rem, 4.5vw, 3rem) !important;
+    font-weight: 700 !important; color: #ffffff !important;
+    line-height: 1.15 !important; margin-bottom: 16px !important;
+}
+.lp-hero-sub {
+    font-size: 1.1rem; color: #94a3b8;
+    max-width: 480px; margin: 0 auto; line-height: 1.65;
+}
+
+/* ── Workflow cards ── */
+.lp-wf-card {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 30px 26px 24px;
+    height: 100%;
+    transition: box-shadow .2s, transform .2s, border-color .2s;
+}
+.lp-wf-card:hover {
+    box-shadow: 0 10px 36px rgba(15,23,42,.1);
+    transform: translateY(-3px);
+    border-color: #bfdbfe;
+}
+.lp-wf-icon  { font-size: 2.4rem; margin-bottom: 14px; display: block; }
+.lp-wf-title { font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 10px; }
+.lp-wf-desc  { font-size: .85rem; color: #64748b; line-height: 1.65; margin-bottom: 14px; }
+.lp-wf-bullets {
+    list-style: none; padding: 0; margin: 0 0 22px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.lp-wf-bullets li { font-size: .82rem; color: #374151; }
+
+/* ── How it works ── */
+.lp-how {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 36px 32px;
+    margin-top: 36px;
+    text-align: center;
+}
+.lp-how-title {
+    font-size: 1.05rem; font-weight: 700; color: #0f172a;
+    margin-bottom: 28px; letter-spacing: -.01em;
+}
+.lp-steps-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 12px; flex-wrap: wrap;
+}
+.lp-step {
+    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 22px 20px; width: 200px; text-align: center;
+    transition: box-shadow .18s;
+}
+.lp-step:hover { box-shadow: 0 6px 20px rgba(15,23,42,.07); }
+.lp-step-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #2563eb; color: #fff; font-size: .72rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 10px;
+}
+.lp-step-icon  { font-size: 1.7rem; margin-bottom: 8px; }
+.lp-step-label { font-size: .88rem; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+.lp-step-desc  { font-size: .76rem; color: #64748b; line-height: 1.55; }
+.lp-step-arrow { font-size: 1.6rem; color: #cbd5e1; flex-shrink: 0; }
+
+/* ── Demo notice ── */
+.lp-notice {
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    border-left: 4px solid #3b82f6; border-radius: 10px;
+    padding: 12px 18px; margin-top: 24px;
+    font-size: .85rem; color: #1e40af; line-height: 1.6;
+    display: flex; align-items: flex-start; gap: 10px;
+}

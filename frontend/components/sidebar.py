@@ -28,16 +28,19 @@ def render(current_page: str) -> None:
 """, unsafe_allow_html=True)
 
         pages = [
-            ("🏠", "Landing",    "landing"),
-            ("📤", "Upload",     "upload"),
-            ("🔍", "OCR Results","ocr"),
-            ("🧩", "Extraction", "extraction"),
-            ("💬", "Contract RAG","rag"),
-            ("📊", "Evaluation", "evaluation"),
+            ("🏠", "Home",        "landing"),
+            ("📤", "Upload",      "upload"),
+            ("🔍", "OCR Results", "ocr"),
+            ("🧩", "Extraction",  "extraction"),
+            ("💬", "RAG Chat",    "rag"),
+            ("📊", "Evaluation",  "evaluation"),
         ]
 
+        # On landing show only top-level items; show all after first upload
+        visible = pages[:2] if current_page == "landing" else pages
+
         st.markdown('<div class="sb-section"><div class="sb-sec-title">Navigation</div>', unsafe_allow_html=True)
-        for icon, label, key in pages:
+        for icon, label, key in visible:
             active = "active" if current_page == key else ""
             if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
                 st.session_state.page = key

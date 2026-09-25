@@ -2,62 +2,116 @@ import streamlit as st
 
 
 def render() -> None:
+
+    # ── Hero ──────────────────────────────────────────────────────────────────
     st.markdown("""
-<div class="hero">
-  <div class="hero-badge">📄 &nbsp; AI-Powered Document Intelligence</div>
-  <h1 class="hero-title">Document AI &amp;<br>Contract Intelligence</h1>
-  <p class="hero-sub">
-    Upload any contract, invoice, or scanned document — get OCR, structured extraction,
-    RAG-powered Q&amp;A, and model evaluation in seconds.
-  </p>
-  <div class="hero-chips">
-    <span class="hero-chip">🔍 OCR &amp; Layout</span>
-    <span class="hero-chip">🧩 LLM Extraction</span>
-    <span class="hero-chip">💬 Contract RAG</span>
-    <span class="hero-chip">📊 Evaluation</span>
-    <span class="hero-chip">🎛 Prompt Studio</span>
+<div class="lp-hero">
+  <div class="lp-hero-badge">📄 &nbsp; AI-Powered Document Intelligence</div>
+  <h1 class="lp-hero-title">Document AI &amp;<br>Contract Intelligence</h1>
+  <p class="lp-hero-sub">Upload a PDF or scanned image and choose one workflow.</p>
+</div>
+""", unsafe_allow_html=True)
+
+    # ── Two workflow cards ─────────────────────────────────────────────────────
+    st.markdown('<div class="lp-cards-row">', unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2, gap="large")
+
+    with col1:
+        st.markdown("""
+<div class="lp-wf-card">
+  <div class="lp-wf-icon">🔍</div>
+  <div class="lp-wf-title">OCR &amp; Structured Extraction</div>
+  <div class="lp-wf-desc">
+    Upload a scanned PDF or image. The system extracts text, detects tables,
+    identifies stamps and signatures, then uses an LLM to pull out structured
+    fields — parties, dates, values, clauses — as clean JSON.
+  </div>
+  <ul class="lp-wf-bullets">
+    <li>📝 Text &amp; layout recognition</li>
+    <li>📊 Table &amp; bounding-box detection</li>
+    <li>🧩 JSON field extraction</li>
+    <li>🎛 Editable prompt studio</li>
+  </ul>
+</div>
+""", unsafe_allow_html=True)
+        if st.button("Start OCR →", type="primary", use_container_width=True, key="btn_ocr"):
+            st.session_state.page = "upload"
+            st.session_state.workflow = "ocr"
+            st.rerun()
+
+    with col2:
+        st.markdown("""
+<div class="lp-wf-card">
+  <div class="lp-wf-icon">💬</div>
+  <div class="lp-wf-title">Chat with Documents (RAG)</div>
+  <div class="lp-wf-desc">
+    Upload a contract or any document, then ask questions in plain English.
+    The system retrieves the most relevant chunks and generates a grounded
+    answer with citations — no hallucinations.
+  </div>
+  <ul class="lp-wf-bullets">
+    <li>📎 Chunk-level retrieval</li>
+    <li>💬 Natural language Q&amp;A</li>
+    <li>🔗 Source citations shown</li>
+    <li>❓ Example questions included</li>
+  </ul>
+</div>
+""", unsafe_allow_html=True)
+        if st.button("Try RAG →", type="primary", use_container_width=True, key="btn_rag"):
+            st.session_state.page = "upload"
+            st.session_state.workflow = "rag"
+            st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── How it works ──────────────────────────────────────────────────────────
+    st.markdown("""
+<div class="lp-how">
+  <div class="lp-how-title">How it works</div>
+  <div class="lp-steps-row">
+
+    <div class="lp-step">
+      <div class="lp-step-num">1</div>
+      <div class="lp-step-icon">📤</div>
+      <div class="lp-step-label">Upload document</div>
+      <div class="lp-step-desc">Drop any PDF, scanned image, or multi-page contract.</div>
+    </div>
+
+    <div class="lp-step-arrow">→</div>
+
+    <div class="lp-step">
+      <div class="lp-step-num">2</div>
+      <div class="lp-step-icon">⚙️</div>
+      <div class="lp-step-label">Choose OCR or RAG</div>
+      <div class="lp-step-desc">Run structured extraction or start a Q&A chat session.</div>
+    </div>
+
+    <div class="lp-step-arrow">→</div>
+
+    <div class="lp-step">
+      <div class="lp-step-num">3</div>
+      <div class="lp-step-icon">✅</div>
+      <div class="lp-step-label">Get results &amp; citations</div>
+      <div class="lp-step-desc">Structured JSON fields or answers with source chunk citations.</div>
+    </div>
+
   </div>
 </div>
 """, unsafe_allow_html=True)
 
+    # ── Demo notice ───────────────────────────────────────────────────────────
     st.markdown("""
-<div class="info-banner">
-  💡 <div><strong>Live Demo —</strong>
-  This platform runs fully in mock mode with realistic demo data.
-  Upload any PDF or image to explore all features.
-  Swap in real OCR/LLM engines via environment variables.</div>
+<div class="lp-notice">
+  💡 <strong>Live Demo</strong> — Runs in mock mode with realistic contract data.
+  Swap in real OCR / LLM engines via environment variables when ready.
 </div>
 """, unsafe_allow_html=True)
 
-    features = [
-        ("🔍", "OCR & Layout Parsing",    "Extract text blocks, detect tables, stamps and seals. Multi-column reconstruction with bounding-box visualisation."),
-        ("🧩", "Structured Extraction",   "LLM-powered JSON extraction of contract parties, dates, values, signatories, and clauses."),
-        ("💬", "Contract RAG",            "Chat over uploaded contracts. Ask about termination clauses, payment schedules, or any clause — with source chunks shown."),
-        ("🎛", "Prompt Studio",           "View and edit system + extraction prompts. Re-run extraction with custom templates to tune accuracy."),
-        ("📊", "Evaluation Dashboard",    "Verified test dataset with precision, recall, F1 and field-level accuracy. Ground-truth vs. predicted comparison."),
-        ("⚙️", "Pluggable Architecture",  "OCR, LLM, and vector DB layers are fully swappable. Replace mock processors without touching the frontend."),
-    ]
-
-    cols = st.columns(3)
-    for i, (icon, title, desc) in enumerate(features):
-        with cols[i % 3]:
-            st.markdown(f"""
-<div class="feat-card">
-  <span class="feat-icon">{icon}</span>
-  <div class="feat-title">{title}</div>
-  <div class="feat-desc">{desc}</div>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        if st.button("📤  Upload a Document", type="primary", use_container_width=True):
-            st.session_state.page = "upload"
-            st.rerun()
-
+    # ── Footer ────────────────────────────────────────────────────────────────
     st.markdown("""
 <div class="footer">
-  <span class="footer-brand">📄 Document AI & Contract Intelligence</span>
+  <span class="footer-brand">📄 Document AI &amp; Contract Intelligence</span>
   <span class="footer-copy">Portfolio Demo · Swati Gupta · 2026</span>
 </div>
 """, unsafe_allow_html=True)
