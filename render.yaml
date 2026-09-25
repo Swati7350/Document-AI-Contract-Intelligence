@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: docai-contract-intelligence
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run frontend/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: PYTHONPATH
+        value: "/opt/render/project/src"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: OCR_ENGINE
+        value: "mock"
+      - key: ENABLE_REAL_LLM
+        value: "false"
