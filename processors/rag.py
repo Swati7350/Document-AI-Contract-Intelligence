@@ -1,16 +1,20 @@
 """
 Contract RAG processor — ChromaDB vector store.
 ═══════════════════════════════════════════════════════════════════
-Pipeline (called on every Try RAG click):
-  1. OCR text  →  _chunk_text()       word-window chunks
-  2. chunks    →  ChromaDB.add()      ONNX MiniLM embeddings (bundled)
-  3. query     →  ChromaDB.query()    cosine Top-K retrieval
-  4. chunks    →  _answer_from_chunks() grounded answer extraction
+Pipeline:
+  1. text + pages  →  _recursive_chunk()   CHUNK_SIZE=100, OVERLAP=30
+  2. chunks        →  ChromaDB.add()       ONNX MiniLM cosine embeddings
+  3. query         →  ChromaDB.query()     Top-K retrieval
+  4. chunks        →  _answer_from_chunks() grounded extraction
 
-Source of truth: ONLY the text embedded in step 2.
-No hardcoded answers. No mock contract data. No cached static responses.
+Chunking config (fixed):
+  CHUNK_SIZE    = 100   # words (~130 tokens)
+  CHUNK_OVERLAP = 30    # words
+  Recursive splitting: paragraph → sentence → word boundaries
+  Page number stored in every chunk metadata.
 
-Real LLM:  set ENABLE_REAL_LLM=true + OPENAI_API_KEY for GPT answers.
+Source of truth: ONLY the text from embed_document().
+No hardcoded answers. No sample contract data in the answer path.
 ═══════════════════════════════════════════════════════════════════
 """
 from __future__ import annotations
@@ -21,28 +25,36 @@ import time
 from pathlib import Path
 from typing import List, Tuple
 
-ENABLE_REAL_LLM = os.getenv("ENABLE_REAL_LLM", "false").lower() == "true"
-SAMPLE_DOC_PATH = Path(__file__).parent.parent / "assets" / "sample_invoice.txt"
+ENABLE_REAL_LLM  = os.getenv("ENABLE_REAL_LLM", "false").lower() == "true"
+CHUNK_SIZE       = 100   # words
+CHUNK_OVERLAP    = 30    # words
+SAMPLE_PDF_PATH  = Path(__file__).parent.parent / "assets" / "sample_beverage_invoice.pdf"
 
 # ── Module-level state ────────────────────────────────────────────────────────
 _client     = None
 _collection = None
 _doc_id: str = ""
-_raw_chunks: List[str] = []          # plain text, parallel to ChromaDB store
+_chunks: List[dict] = []   # [{text, page, chunk_idx}]
 
 
 # ══════════════════════════════════════════════════════════════════
 #  PUBLIC API
 # ══════════════════════════════════════════════════════════════════
 
-def embed_document(text: str, doc_id: str) -> dict:
+def embed_document(text: str, doc_id: str, pages: List[str] = None) -> dict:
     """
-    Chunk the OCR-extracted text, compute embeddings, build the vector store.
-    Always replaces the previous document — the uploaded file is the only source.
-    """
-    global _client, _collection, _doc_id, _raw_chunks
+    Chunk the text recursively, embed each chunk, store in ChromaDB.
+    Always wipes the previous collection — the uploaded file is the only source.
 
-    # ── Reset: wipe previous document completely ──────────────────────────────
+    Args:
+        text:    Full extracted text of the document.
+        doc_id:  Filename or identifier (used for metadata only).
+        pages:   Optional list of per-page texts for page-level metadata.
+                 If None, the whole text is treated as page 1.
+    """
+    global _client, _collection, _doc_id, _chunks
+
+    # Hard reset — previous document is gone
     if _client is not None:
         try:
             _client.delete_collection("rag_chunks")
@@ -56,45 +68,57 @@ def embed_document(text: str, doc_id: str) -> dict:
         name="rag_chunks",
         metadata={"hnsw:space": "cosine"},
     )
-    _doc_id     = doc_id
-    _raw_chunks = _chunk_text(text)
+    _doc_id = doc_id
+    _chunks = _recursive_chunk(text, pages or [text])
 
-    if not _raw_chunks:
+    if not _chunks:
         return {"chunks_created": 0, "doc_id": doc_id}
 
     _collection.add(
-        documents=_raw_chunks,
-        ids=[f"c{i}" for i in range(len(_raw_chunks))],
-        metadatas=[{"chunk_idx": i} for i in range(len(_raw_chunks))],
+        documents=[c["text"]      for c in _chunks],
+        ids=[f"c{i}"              for i in range(len(_chunks))],
+        metadatas=[{
+            "chunk_idx": c["chunk_idx"],
+            "page":      c["page"],
+            "doc_id":    doc_id,
+        } for c in _chunks],
     )
-    return {"chunks_created": len(_raw_chunks), "doc_id": doc_id}
+    return {"chunks_created": len(_chunks), "doc_id": doc_id}
 
 
 def embed_sample_doc() -> dict:
-    """Embed the bundled Beverage Sales Invoice as the demo document."""
-    if SAMPLE_DOC_PATH.exists():
-        text = SAMPLE_DOC_PATH.read_text(encoding="utf-8")
+    """
+    Embed the bundled sample PDF (Beverage Sales Invoice).
+    Reads the real PDF bytes through the OCR extractor — same path as an upload.
+    Falls back to inline text if the PDF is missing.
+    """
+    if SAMPLE_PDF_PATH.exists():
+        from processors.ocr import extract_text
+        text = extract_text(SAMPLE_PDF_PATH.read_bytes(), SAMPLE_PDF_PATH.name)
     else:
+        text = ""
+
+    if not text or len(text.strip()) < 30:
+        # Inline fallback — Beverage invoice only, never the Service Agreement
         text = (
-            "Beverage Sales Invoice. Beverage Distribution Co. "
-            "123 Market Street, Bengaluru. Invoice No: INV-2026-1048. "
-            "Date: 24 Sep 2026. "
-            "Items: Coca-Cola 330ml qty 12 unit $1.25 amount $15.00. "
-            "Pepsi 330ml qty 8 unit $1.20 amount $9.60. "
-            "Sprite 330ml qty 10 unit $1.15 amount $11.50. "
-            "Fanta Orange 330ml qty 6 unit $1.30 amount $7.80. "
-            "Red Bull 250ml qty 5 unit $2.80 amount $14.00. "
-            "Subtotal $57.90. Tax $5.79. Total $63.69. "
-            "Payment Terms: Net 15 Days."
+            "Beverage Sales Invoice\n"
+            "Beverage Distribution Co., 123 Market Street, Bengaluru\n"
+            "Invoice No: INV-2026-1048  Date: 24 Sep 2026\n"
+            "Item               Qty  Unit Price  Amount\n"
+            "Coca-Cola 330ml     12  $1.25       $15.00\n"
+            "Pepsi 330ml          8  $1.20        $9.60\n"
+            "Sprite 330ml        10  $1.15       $11.50\n"
+            "Fanta Orange 330ml   6  $1.30        $7.80\n"
+            "Red Bull 250ml       5  $2.80       $14.00\n"
+            "Subtotal: $57.90  Tax: $5.79  Total: $63.69\n"
+            "Payment Terms: Net 15 Days\n"
         )
-    return embed_document(text, "sample_beverage_invoice")
+
+    return embed_document(text, "sample_beverage_invoice.pdf")
 
 
 def query(question: str) -> dict:
-    """
-    Embed the question, retrieve Top-3 chunks from the vector store,
-    and return a grounded answer derived from those chunks only.
-    """
+    """Embed question, retrieve Top-3 chunks, return a grounded answer."""
     if _collection is None or _collection.count() == 0:
         return {
             "answer": (
@@ -103,36 +127,84 @@ def query(question: str) -> dict:
             ),
             "retrieved_chunks": [],
         }
-
-    top_chunks = _retrieve(question, top_k=3)
-
-    if ENABLE_REAL_LLM:
-        return _llm_answer(question, top_chunks)
-    return _answer_from_chunks(question, top_chunks)
+    top = _retrieve(question, top_k=3)
+    return _llm_answer(question, top) if ENABLE_REAL_LLM \
+           else _answer_from_chunks(question, top)
 
 
 # ══════════════════════════════════════════════════════════════════
-#  CHUNKING  (600–800 token equivalent in words)
+#  RECURSIVE CHUNKING  (CHUNK_SIZE=100, OVERLAP=30)
 # ══════════════════════════════════════════════════════════════════
 
-def _chunk_text(text: str, size: int = 120, overlap: int = 20) -> List[str]:
+def _recursive_chunk(full_text: str, pages: List[str]) -> List[dict]:
     """
-    Split text into overlapping word-window chunks.
-    120 words ≈ 160 tokens  →  3–5 chunks per typical invoice.
-    Smaller chunks = better precision for tabular / numeric data.
+    Recursive text splitting strategy:
+      1. Split on paragraph boundaries (\\n\\n or \\n followed by blank line).
+      2. If a paragraph exceeds CHUNK_SIZE words, split on sentence boundaries.
+      3. If a sentence still exceeds CHUNK_SIZE words, split on word boundaries.
+    Overlap is applied at the word level across all resulting chunks.
+    Each chunk carries a page number derived from the pages list.
     """
-    # Preserve line structure inside each chunk for better readability
-    lines  = [l.strip() for l in text.splitlines() if l.strip()]
-    joined = "\n".join(lines)
-    words  = joined.split()
-    if not words:
-        return [text]
+    # Build a page-boundary map so we can tag each chunk with a page number
+    page_offsets: List[int] = []
+    offset = 0
+    for pg in pages:
+        page_offsets.append(offset)
+        offset += len(pg.split())
 
-    result, i = [], 0
-    while i < len(words):
-        result.append(" ".join(words[i : i + size]))
-        i += size - overlap
-    return result
+    # Step 1 — paragraph split
+    paragraphs = re.split(r"\n\s*\n|\r\n\s*\r\n", full_text)
+    sentences: List[str] = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        words = para.split()
+        if len(words) <= CHUNK_SIZE:
+            sentences.append(para)
+        else:
+            # Step 2 — sentence split within long paragraphs
+            sents = re.split(r"(?<=[.!?])\s+", para)
+            for sent in sents:
+                sent = sent.strip()
+                if not sent:
+                    continue
+                s_words = sent.split()
+                if len(s_words) <= CHUNK_SIZE:
+                    sentences.append(sent)
+                else:
+                    # Step 3 — hard word-window split
+                    for i in range(0, len(s_words), CHUNK_SIZE):
+                        sentences.append(" ".join(s_words[i:i + CHUNK_SIZE]))
+
+    # Apply overlap: sliding window over the sentence list by word count
+    all_words: List[Tuple[str, int]] = []   # (word, sentence_idx)
+    for si, sent in enumerate(sentences):
+        for w in sent.split():
+            all_words.append((w, si))
+
+    chunks: List[dict] = []
+    i = 0
+    while i < len(all_words):
+        window = all_words[i : i + CHUNK_SIZE]
+        chunk_text = " ".join(w for w, _ in window)
+        # Page number: find which page the first word of this chunk belongs to
+        word_pos = i
+        page_num = 1
+        for pg_idx, pg_start in enumerate(reversed(page_offsets)):
+            if word_pos >= pg_start:
+                page_num = len(page_offsets) - pg_idx
+                break
+
+        chunks.append({
+            "chunk_idx": len(chunks),
+            "text":      chunk_text,
+            "page":      page_num,
+        })
+        step = CHUNK_SIZE - CHUNK_OVERLAP
+        i += max(step, 1)
+
+    return chunks if chunks else [{"chunk_idx": 0, "text": full_text[:2000], "page": 1}]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -140,21 +212,21 @@ def _chunk_text(text: str, size: int = 120, overlap: int = 20) -> List[str]:
 # ══════════════════════════════════════════════════════════════════
 
 def _retrieve(question: str, top_k: int = 3) -> List[dict]:
-    """Query ChromaDB and return top_k chunks as dicts."""
     k   = min(top_k, _collection.count())
     res = _collection.query(query_texts=[question], n_results=k)
 
-    chunks = []
+    out = []
     for i, text in enumerate(res["documents"][0]):
         meta = res["metadatas"][0][i]
-        dist = res["distances"][0][i] if res.get("distances") else 0.0
-        chunks.append({
+        dist = (res.get("distances") or [[0.0] * k])[0][i]
+        out.append({
             "id":         meta.get("chunk_idx", i),
-            "doc_id":     _doc_id,
+            "page":       meta.get("page", 1),
+            "doc_id":     meta.get("doc_id", _doc_id),
             "text":       text,
-            "similarity": round(1.0 - dist, 3),   # cosine distance → similarity
+            "similarity": round(max(0.0, 1.0 - dist), 3),
         })
-    return chunks
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -163,91 +235,73 @@ def _retrieve(question: str, top_k: int = 3) -> List[dict]:
 
 def _answer_from_chunks(question: str, chunks: List[dict]) -> dict:
     """
-    Build a grounded answer from the retrieved chunks.
-
-    Strategy:
-    1. Scan every line in the retrieved chunks.
-    2. Score each line by token overlap with the question.
-    3. Pick the top-scoring lines as the answer.
-    4. For numeric/quantity questions, also surface lines containing digits.
-
-    The answer is ONLY constructed from the retrieved chunk text —
-    no hardcoded strings, no fallback contract data.
+    Extract the best-matching lines from retrieved chunks.
+    Answer comes ONLY from chunk text — no hardcoded strings.
+    Numeric/quantity questions get a score boost for lines containing digits.
     """
-    time.sleep(0.15)
+    time.sleep(0.1)
 
-    q_tokens = set(re.findall(r"[a-z0-9$₹%]+", question.lower()))
+    q_tokens    = set(re.findall(r"[a-z0-9$₹%]+", question.lower()))
+    num_q_words = {"total", "amount", "qty", "quantity", "price", "subtotal",
+                   "tax", "cost", "how many", "how much", "sum", "value",
+                   "number", "count", "invoice", "grand"}
 
-    # Collect all lines from retrieved chunks (preserve order)
-    candidate_lines: List[Tuple[float, str, int]] = []  # (score, line, chunk_idx)
-    for cidx, chunk in enumerate(chunks):
+    candidates: List[Tuple[float, str]] = []
+    for chunk in chunks:
         for line in re.split(r"[\n.!?]+", chunk["text"]):
             line = line.strip()
             if len(line) < 8:
                 continue
             l_tokens = set(re.findall(r"[a-z0-9$₹%]+", line.lower()))
             overlap  = len(q_tokens & l_tokens)
+            boost    = 1.5 if (re.search(r"\d", line) and q_tokens & num_q_words) else 0.0
+            candidates.append((overlap + boost, line))
 
-            # Boost lines with numbers when question asks for amounts/quantities
-            numeric_boost = 0.0
-            if re.search(r"\d", line):
-                num_q_words = {"total", "amount", "qty", "quantity", "price",
-                               "subtotal", "tax", "cost", "how many", "how much",
-                               "sum", "value", "number", "count", "invoice"}
-                if q_tokens & num_q_words:
-                    numeric_boost = 1.5
+    candidates.sort(key=lambda x: x[0], reverse=True)
 
-            score = overlap + numeric_boost
-            candidate_lines.append((score, line, cidx))
-
-    # Sort by score descending, deduplicate near-identical lines
-    candidate_lines.sort(key=lambda x: x[0], reverse=True)
-    seen, best_lines = set(), []
-    for score, line, _ in candidate_lines:
-        normalised = re.sub(r"\s+", " ", line.lower())
-        if normalised not in seen and score > 0:
-            seen.add(normalised)
-            best_lines.append(line)
-        if len(best_lines) == 4:
+    seen, best = set(), []
+    for score, line in candidates:
+        key = re.sub(r"\s+", " ", line.lower())
+        if key not in seen and score > 0:
+            seen.add(key)
+            best.append(line)
+        if len(best) == 4:
             break
 
-    if best_lines:
-        answer = "  \n".join(best_lines)          # markdown line breaks
+    if best:
+        answer = "  \n".join(best)
     else:
-        # Fall back: return the first sentence of the top chunk verbatim
-        first_chunk_text = chunks[0]["text"] if chunks else ""
-        sentences = re.split(r"(?<=[.!?])\s+", first_chunk_text)
-        non_empty = [s.strip() for s in sentences if len(s.strip()) > 10]
-        answer = non_empty[0] if non_empty else \
+        raw = chunks[0]["text"] if chunks else ""
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", raw) if len(s.strip()) > 10]
+        answer = sents[0] if sents else \
                  "This information is not available in the uploaded document."
 
     return {
         "answer":           answer,
         "retrieved_chunks": chunks,
-        "model":            "chromadb-MiniLM + extraction",
+        "model":            f"chromadb+MiniLM (chunk={CHUNK_SIZE}/overlap={CHUNK_OVERLAP})",
         "doc_id":           _doc_id,
     }
 
 
 # ══════════════════════════════════════════════════════════════════
-#  REAL LLM PATH (OpenAI-compatible)
+#  REAL LLM PATH
 # ══════════════════════════════════════════════════════════════════
 
 def _llm_answer(question: str, chunks: List[dict]) -> dict:
-    """Send retrieved chunks + question to the configured LLM."""
     try:
         import openai
-
         context = "\n\n---\n\n".join(
-            f"[Chunk {c['id'] + 1}  similarity={c.get('similarity','?')}]\n{c['text']}"
+            f"[Chunk {c['id']+1} | Page {c.get('page',1)} | "
+            f"similarity={c.get('similarity','?')}]\n{c['text']}"
             for c in chunks
         )
         system_msg = (
             "You are a document analysis assistant. "
-            "Answer the user's question using ONLY the context below. "
-            "If the answer cannot be found in the context, respond exactly: "
+            "Answer using ONLY the context provided. "
+            "If the answer is not in the context, say: "
             "'This information is not available in the uploaded document.' "
-            "Be concise, factual, and cite the chunk number when relevant."
+            "Be concise, factual, and cite the chunk and page number."
         )
         client = openai.OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),

@@ -130,15 +130,19 @@ def render() -> None:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💬  Switch to RAG Chat", type="secondary", use_container_width=True):
-            # Embed if not already done
             if not st.session_state.get("doc_embedded"):
                 from processors import rag as rag_proc
-                rag_proc.embed_document(
-                    ocr["full_text"],
-                    st.session_state.get("uploaded_filename", "doc"),
-                )
+                page_texts = ocr.get("page_texts") or [ocr["full_text"]]
+                with st.spinner("Embedding document for RAG…"):
+                    rag_proc.embed_document(
+                        ocr["full_text"],
+                        st.session_state.get("uploaded_filename", "doc"),
+                        pages=page_texts,
+                    )
                 st.session_state.doc_embedded = True
                 st.session_state.chat_history = []
+            # Always clear demo flag — we have a real uploaded document
+            st.session_state._rag_is_demo = False
             st.session_state.page = "rag"
             st.rerun()
     with col2:

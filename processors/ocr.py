@@ -42,8 +42,7 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
 def _extract_pdf(data: bytes) -> str:
     """
     Extract text from PDF bytes using pypdf.
-    Works with digitally-created PDFs (Word, LibreOffice, design tools).
-    Scanned/image-only PDFs return empty → caller falls back to demo.
+    Returns full text as a single string.
     """
     try:
         from pypdf import PdfReader
@@ -58,6 +57,23 @@ def _extract_pdf(data: bytes) -> str:
         return ""
 
 
+def extract_pages(data: bytes) -> List[str]:
+    """
+    Extract per-page text list from a PDF.
+    Returns ["page1 text", "page2 text", …].
+    """
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        pages  = []
+        for page in reader.pages:
+            text = (page.extract_text() or "").strip()
+            pages.append(text)
+        return pages if any(pages) else []
+    except Exception:
+        return []
+
+
 # ══════════════════════════════════════════════════════════════════
 #  MOCK PROCESSOR — uses real extracted text, beverage demo fallback
 # ══════════════════════════════════════════════════════════════════
@@ -67,7 +83,8 @@ def _mock_process(file_bytes: bytes, filename: str) -> dict:
     is_pdf = filename.lower().endswith(".pdf")
 
     # ── Extract real text ─────────────────────────────────────────
-    real_text = extract_text(file_bytes, filename) if file_bytes else ""
+    real_text  = extract_text(file_bytes, filename) if file_bytes else ""
+    page_texts = extract_pages(file_bytes) if (file_bytes and is_pdf) else []
 
     if real_text and len(real_text.strip()) > 40:
         text_blocks, tables, full_text = _build_from_text(real_text)
@@ -75,10 +92,11 @@ def _mock_process(file_bytes: bytes, filename: str) -> dict:
     else:
         # No extractable text (scanned image / empty PDF) → beverage demo
         full_text, text_blocks, tables = _beverage_demo()
+        page_texts = [full_text]
         source = "demo"
 
     layout = {
-        "pages":            max(1, real_text.count("\f") + 1) if real_text else (2 if is_pdf else 1),
+        "pages":            len(page_texts) if page_texts else (2 if is_pdf else 1),
         "columns_detected": 1,
         "stamps_seals":     [],
         "headers_footers":  True,
@@ -96,6 +114,7 @@ def _mock_process(file_bytes: bytes, filename: str) -> dict:
         "filename":          filename,
         "text_blocks":       text_blocks,
         "full_text":         full_text,
+        "page_texts":        page_texts or [full_text],   # always present
         "tables":            tables,
         "layout":            layout,
         "avg_confidence":    round(

@@ -126,8 +126,13 @@ def _run_ocr() -> None:
     from processors import ocr as ocr_proc
     from processors import extractor
 
-    fname = st.session_state.uploaded_filename
+    fname  = st.session_state.uploaded_filename
     fbytes = st.session_state.uploaded_bytes
+
+    # Clear any stale results from a previous document
+    for k in ["ocr_result", "extraction_result", "doc_embedded",
+              "chat_history", "_rag_is_demo"]:
+        st.session_state.pop(k, None)
 
     with st.spinner("Running OCR…"):
         ocr_result = ocr_proc.process_document(fbytes, fname)
@@ -142,19 +147,28 @@ def _run_ocr() -> None:
 
 
 def _run_rag() -> None:
-    """OCR → chunk → embed pipeline — silent background steps."""
+    """OCR → recursive chunk → embed pipeline. Passes page texts for metadata."""
     from processors import ocr as ocr_proc
     from processors import rag as rag_proc
 
     fname  = st.session_state.uploaded_filename
     fbytes = st.session_state.uploaded_bytes
 
-    with st.spinner("Processing document for RAG…"):
+    # Clear any stale RAG state from a previous document
+    for k in ["ocr_result", "doc_embedded", "chat_history", "_rag_is_demo"]:
+        st.session_state.pop(k, None)
+
+    with st.spinner("Extracting text from document…"):
         ocr_result = ocr_proc.process_document(fbytes, fname)
-        rag_proc.embed_document(ocr_result["full_text"], fname)
+
+    with st.spinner("Chunking & embedding document…"):
+        # Pass per-page texts so chunk metadata carries correct page numbers
+        page_texts = ocr_result.get("page_texts") or [ocr_result["full_text"]]
+        rag_proc.embed_document(ocr_result["full_text"], fname, pages=page_texts)
 
     st.session_state.ocr_result   = ocr_result
     st.session_state.doc_embedded = True
+    st.session_state._rag_is_demo = False       # explicitly mark as real upload
     st.session_state.chat_history = []
     st.session_state.page         = "rag"
     st.rerun()
