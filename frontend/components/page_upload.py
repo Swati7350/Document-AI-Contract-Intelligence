@@ -58,7 +58,7 @@ def render() -> None:
   <span class="icon">📂</span>
   Drag and drop a <strong>PDF</strong> or <strong>Image</strong> (PNG / JPG)<br>
   <span style="font-size:.8rem;color:#94a3b8;margin-top:6px;display:block;">
-    Contracts · invoices · scanned documents
+    Limit 2KB per file • PDF, PNG, JPG, JPEG
   </span>
 </div>"""  , unsafe_allow_html=True)
         return

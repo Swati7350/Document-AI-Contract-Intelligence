@@ -57,4 +57,47 @@ def render(current_page: str) -> None:
   <a class="sb-social-btn" href="https://github.com/Swati7350" target="_blank">⌥ GitHub</a>
   <a class="sb-social-btn" href="https://linkedin.com/in/swati7350" target="_blank">💼 LinkedIn</a>
 </div>
+
 """, unsafe_allow_html=True)
+      # ── Other projects ────────────────────────────────────────────────────
+st.markdown("""
+<div class="sb-section" style="margin-top:10px;">
+  <div class="sb-sec-title">Other Projects</div>
+</div>
+
+<div style="padding:0 14px;">
+  <a href="https://lastpass-autofill-login-agent.onrender.com" target="_blank"
+     style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;border:1px solid #e2e8f0;font-size:.8rem;font-weight:500;color:#374151!important;text-decoration:none!important;margin-bottom:6px;background:#f8fafc;">
+    🔐 LastPass Login Agent
+    <span style="margin-left:auto;font-size:.62rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:999px;">LIVE</span>
+  </a>
+
+  <a href="https://travel-agent-orchestration-and-whatsapp-integration.streamlit.app/" target="_blank"
+     style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;border:1px solid #e2e8f0;font-size:.8rem;font-weight:500;color:#374151!important;text-decoration:none!important;margin-bottom:6px;background:#f8fafc;">
+    ✈️ Travel Agent
+    <span style="margin-left:auto;font-size:.62rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:999px;">LIVE</span>
+  </a>
+
+  <a href="https://ai-invoice-ocr.onrender.com/" target="_blank"
+     style="display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;border:1px solid #e2e8f0;font-size:.8rem;font-weight:500;color:#374151!important;text-decoration:none!important;margin-bottom:6px;background:#f8fafc;">
+    🧾 Invoice OCR
+    <span style="margin-left:auto;font-size:.62rem;font-weight:700;background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:999px;">LIVE</span>
+  </a>
+</div>
+
+<div class="sb-social">
+  <a class="sb-social-btn" href="https://github.com/Swati7350" target="_blank">⌥ GitHub</a>
+  <a class="sb-social-btn" href="https://linkedin.com/in/swati7350" target="_blank">💼 LinkedIn</a>
+</div>
+""", unsafe_allow_html=True)
+
+# Footer note (outside the HTML string)
+st.markdown(
+    """
+    <div style="text-align:center;color:#64748b;font-size:0.78rem;
+                margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">
+        🚀 More AI projects coming soon
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
