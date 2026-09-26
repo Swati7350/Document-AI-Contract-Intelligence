@@ -8,6 +8,6 @@ chromadb==0.5.3
 numpy==1.26.4
 pypdf==4.3.1
 reportlab==4.2.2
-docling==1.30.0
-tiktoken==0.7.0
+docling>=2.130.0
+tiktoken>=0.9.0
 pytesseract==0.3.13
