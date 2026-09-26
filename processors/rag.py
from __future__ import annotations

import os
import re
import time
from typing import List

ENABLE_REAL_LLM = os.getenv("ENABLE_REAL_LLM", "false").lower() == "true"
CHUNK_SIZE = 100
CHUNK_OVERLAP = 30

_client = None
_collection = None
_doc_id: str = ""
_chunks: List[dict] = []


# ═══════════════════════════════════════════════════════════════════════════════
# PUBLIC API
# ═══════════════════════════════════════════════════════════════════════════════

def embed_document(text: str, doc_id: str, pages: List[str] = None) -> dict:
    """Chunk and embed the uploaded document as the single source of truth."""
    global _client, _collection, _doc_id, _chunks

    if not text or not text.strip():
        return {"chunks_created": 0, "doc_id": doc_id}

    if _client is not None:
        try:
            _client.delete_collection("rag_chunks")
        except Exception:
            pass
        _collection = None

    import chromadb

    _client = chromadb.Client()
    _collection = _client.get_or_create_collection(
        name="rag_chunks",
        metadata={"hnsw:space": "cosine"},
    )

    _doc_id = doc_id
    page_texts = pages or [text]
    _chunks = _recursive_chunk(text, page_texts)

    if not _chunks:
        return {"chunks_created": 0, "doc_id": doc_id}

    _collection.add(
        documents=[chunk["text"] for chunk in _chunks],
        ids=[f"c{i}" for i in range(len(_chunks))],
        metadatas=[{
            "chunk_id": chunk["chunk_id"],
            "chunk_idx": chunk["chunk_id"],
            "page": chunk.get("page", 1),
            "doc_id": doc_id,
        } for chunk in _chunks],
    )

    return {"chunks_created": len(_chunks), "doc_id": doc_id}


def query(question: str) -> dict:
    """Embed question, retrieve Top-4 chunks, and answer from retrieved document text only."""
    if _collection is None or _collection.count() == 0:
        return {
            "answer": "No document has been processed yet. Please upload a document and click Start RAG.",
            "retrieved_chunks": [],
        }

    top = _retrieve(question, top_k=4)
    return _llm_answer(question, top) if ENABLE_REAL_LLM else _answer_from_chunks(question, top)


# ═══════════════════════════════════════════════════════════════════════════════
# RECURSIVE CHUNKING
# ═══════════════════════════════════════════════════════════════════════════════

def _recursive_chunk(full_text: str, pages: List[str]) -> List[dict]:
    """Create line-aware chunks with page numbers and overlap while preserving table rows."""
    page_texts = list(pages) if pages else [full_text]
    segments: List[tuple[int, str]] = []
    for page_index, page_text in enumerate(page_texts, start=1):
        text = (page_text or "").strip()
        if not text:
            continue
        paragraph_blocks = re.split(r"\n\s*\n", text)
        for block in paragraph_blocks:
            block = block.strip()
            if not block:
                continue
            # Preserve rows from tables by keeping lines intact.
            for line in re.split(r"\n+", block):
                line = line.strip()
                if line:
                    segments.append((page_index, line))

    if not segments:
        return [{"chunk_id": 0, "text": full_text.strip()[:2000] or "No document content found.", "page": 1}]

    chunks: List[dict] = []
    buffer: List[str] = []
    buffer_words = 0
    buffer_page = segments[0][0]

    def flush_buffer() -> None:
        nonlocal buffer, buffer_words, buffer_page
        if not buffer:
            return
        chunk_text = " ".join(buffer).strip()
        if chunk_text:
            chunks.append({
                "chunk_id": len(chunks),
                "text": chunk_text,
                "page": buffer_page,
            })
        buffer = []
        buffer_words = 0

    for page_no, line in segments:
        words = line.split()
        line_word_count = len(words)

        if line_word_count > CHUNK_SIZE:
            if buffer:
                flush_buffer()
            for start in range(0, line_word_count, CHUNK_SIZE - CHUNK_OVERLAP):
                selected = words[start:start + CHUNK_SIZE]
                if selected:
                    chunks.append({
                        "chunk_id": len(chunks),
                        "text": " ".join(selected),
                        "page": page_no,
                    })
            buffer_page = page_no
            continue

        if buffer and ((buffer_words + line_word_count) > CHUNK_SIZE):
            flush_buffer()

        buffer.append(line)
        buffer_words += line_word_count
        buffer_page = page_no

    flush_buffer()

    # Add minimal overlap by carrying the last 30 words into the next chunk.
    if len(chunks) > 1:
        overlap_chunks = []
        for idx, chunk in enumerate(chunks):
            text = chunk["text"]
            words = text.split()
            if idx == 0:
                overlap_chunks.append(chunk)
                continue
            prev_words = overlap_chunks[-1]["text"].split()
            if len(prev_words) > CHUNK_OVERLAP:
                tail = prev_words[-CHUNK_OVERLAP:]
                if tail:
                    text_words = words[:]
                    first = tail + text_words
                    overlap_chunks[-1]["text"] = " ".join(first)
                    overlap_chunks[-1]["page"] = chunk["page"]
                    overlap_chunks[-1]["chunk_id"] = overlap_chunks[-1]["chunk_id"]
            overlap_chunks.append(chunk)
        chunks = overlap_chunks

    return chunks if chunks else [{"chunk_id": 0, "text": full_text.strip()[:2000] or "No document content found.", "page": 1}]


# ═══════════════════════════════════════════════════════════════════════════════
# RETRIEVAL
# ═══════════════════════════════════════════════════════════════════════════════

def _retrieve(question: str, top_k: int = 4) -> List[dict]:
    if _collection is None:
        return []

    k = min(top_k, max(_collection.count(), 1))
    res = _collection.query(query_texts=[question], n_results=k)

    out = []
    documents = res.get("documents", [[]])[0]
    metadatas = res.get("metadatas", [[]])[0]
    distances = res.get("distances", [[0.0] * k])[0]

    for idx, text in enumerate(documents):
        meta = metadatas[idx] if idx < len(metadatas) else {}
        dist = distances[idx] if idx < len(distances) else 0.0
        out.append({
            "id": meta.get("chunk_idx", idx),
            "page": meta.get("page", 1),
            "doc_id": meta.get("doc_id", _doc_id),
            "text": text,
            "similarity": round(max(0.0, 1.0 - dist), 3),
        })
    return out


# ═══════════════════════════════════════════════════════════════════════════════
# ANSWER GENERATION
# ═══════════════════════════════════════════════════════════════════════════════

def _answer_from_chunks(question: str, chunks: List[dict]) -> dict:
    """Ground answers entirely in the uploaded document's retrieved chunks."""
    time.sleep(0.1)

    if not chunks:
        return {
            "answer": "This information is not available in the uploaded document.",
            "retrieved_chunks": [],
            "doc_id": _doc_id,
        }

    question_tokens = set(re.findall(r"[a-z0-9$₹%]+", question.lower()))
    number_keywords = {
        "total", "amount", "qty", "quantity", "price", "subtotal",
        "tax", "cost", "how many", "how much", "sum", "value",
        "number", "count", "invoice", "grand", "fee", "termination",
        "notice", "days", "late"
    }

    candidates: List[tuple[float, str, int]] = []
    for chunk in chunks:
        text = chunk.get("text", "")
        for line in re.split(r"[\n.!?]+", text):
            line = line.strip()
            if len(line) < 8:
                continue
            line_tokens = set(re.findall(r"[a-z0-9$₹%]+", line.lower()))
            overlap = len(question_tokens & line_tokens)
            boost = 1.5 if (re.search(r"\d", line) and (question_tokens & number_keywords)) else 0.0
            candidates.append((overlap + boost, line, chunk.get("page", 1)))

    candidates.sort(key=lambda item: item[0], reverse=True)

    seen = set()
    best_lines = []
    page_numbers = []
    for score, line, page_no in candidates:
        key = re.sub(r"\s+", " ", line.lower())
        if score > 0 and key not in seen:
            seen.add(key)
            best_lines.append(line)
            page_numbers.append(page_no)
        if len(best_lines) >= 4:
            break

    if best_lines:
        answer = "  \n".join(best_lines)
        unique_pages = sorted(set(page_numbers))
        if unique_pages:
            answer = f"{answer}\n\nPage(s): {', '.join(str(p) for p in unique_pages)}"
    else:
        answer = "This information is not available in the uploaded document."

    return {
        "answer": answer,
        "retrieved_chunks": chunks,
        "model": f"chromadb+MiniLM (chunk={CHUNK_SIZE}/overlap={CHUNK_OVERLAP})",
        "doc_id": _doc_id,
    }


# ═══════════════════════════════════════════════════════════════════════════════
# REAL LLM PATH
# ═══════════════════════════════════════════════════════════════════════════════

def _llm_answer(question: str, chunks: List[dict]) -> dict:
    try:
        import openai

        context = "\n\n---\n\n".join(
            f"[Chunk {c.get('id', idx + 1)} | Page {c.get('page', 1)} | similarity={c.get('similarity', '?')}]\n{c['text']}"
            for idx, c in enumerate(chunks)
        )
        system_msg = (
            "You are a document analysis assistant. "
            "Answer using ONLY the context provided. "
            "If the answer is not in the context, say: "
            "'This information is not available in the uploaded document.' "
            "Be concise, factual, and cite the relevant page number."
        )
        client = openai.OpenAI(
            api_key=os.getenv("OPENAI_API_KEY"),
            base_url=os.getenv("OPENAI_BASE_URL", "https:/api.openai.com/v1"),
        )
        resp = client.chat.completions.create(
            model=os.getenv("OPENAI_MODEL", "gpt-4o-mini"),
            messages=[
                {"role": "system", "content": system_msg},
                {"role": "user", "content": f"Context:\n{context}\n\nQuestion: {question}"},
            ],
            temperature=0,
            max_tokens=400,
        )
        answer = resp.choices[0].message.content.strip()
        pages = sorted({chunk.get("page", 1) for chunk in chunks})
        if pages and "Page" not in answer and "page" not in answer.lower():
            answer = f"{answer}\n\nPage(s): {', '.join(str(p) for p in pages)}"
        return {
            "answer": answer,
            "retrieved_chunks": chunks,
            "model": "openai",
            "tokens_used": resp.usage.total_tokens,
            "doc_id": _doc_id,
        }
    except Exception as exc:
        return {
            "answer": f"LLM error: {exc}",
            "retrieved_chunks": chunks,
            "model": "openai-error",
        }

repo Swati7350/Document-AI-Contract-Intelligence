@@ -1,0 +1,117 @@
+"""
+OCR & Layout Parsing processor.
+────────────────────────────────────────────────────────────────
+PDF text extraction : pypdf  (handles all standard PDF encodings)
+Image text          : no demo fallback; OCR output is empty unless a real engine exists
+────────────────────────────────────────────────────────────────
+"""
+from __future__ import annotations
+
+import io
+import os
+import time
+from typing import List
+
+OCR_ENGINE = os.getenv("OCR_ENGINE", "mock")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PUBLIC ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def process_document(file_bytes: bytes, filename: str) -> dict:
+    """Return OCR output in a page-aware structure that matches the uploaded file."""
+    if OCR_ENGINE != "mock":
+        return _real_process(file_bytes, filename)
+    return _mock_process(file_bytes, filename)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEXT EXTRACTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extract_text(file_bytes: bytes, filename: str) -> str:
+    """Public helper returning the full extracted text from a supported document."""
+    fname = filename.lower()
+    if fname.endswith(".pdf"):
+        return _extract_pdf(file_bytes)
+    return ""
+
+
+def _extract_pdf(data: bytes) -> str:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text.strip():
+                pages.append(text.strip())
+        return "\n\n".join(pages).strip()
+    except Exception:
+        return ""
+
+
+def extract_pages(data: bytes) -> List[str]:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data))
+        pages = []
+        for page in reader.pages:
+            text = (page.extract_text() or "").strip()
+            if text:
+                pages.append(text)
+        return pages
+    except Exception:
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MOCK PROCESSOR
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _mock_process(file_bytes: bytes, filename: str) -> dict:
+    """Return extracted OCR text without any sample invoice fallback."""
+    time.sleep(0.2)
+    is_pdf = filename.lower().endswith(".pdf")
+
+    page_texts = extract_pages(file_bytes) if (file_bytes and is_pdf) else []
+    if not page_texts:
+        full_text = extract_text(file_bytes, filename) or ""
+        if full_text.strip():
+            page_texts = [full_text]
+        else:
+            page_texts = [""]
+
+    pages = []
+    for idx, text in enumerate(page_texts, start=1):
+        cleaned = (text or "").strip()
+        if cleaned:
+            pages.append({"page": idx, "text": cleaned})
+
+    if not pages:
+        pages = [{"page": 1, "text": ""}]
+
+    full_text = "\n\n".join(page["text"] for page in pages if page["text"].strip())
+
+    return {
+        "engine": "mock",
+        "filename": filename,
+        "full_text": full_text,
+        "pages": pages,
+        "page_texts": [page["text"] for page in pages],
+        "tables": [],
+        "layout": {"pages": len(pages), "columns_detected": 1},
+        "avg_confidence": 0.0,
+        "processing_time_ms": 0,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REAL OCR STUB
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _real_process(file_bytes: bytes, filename: str) -> dict:
+    raise NotImplementedError(f"Real OCR engine '{OCR_ENGINE}' not wired yet.")
