@@ -10,3 +10,4 @@ pypdf==4.3.1
 reportlab==4.2.2
 docling==1.30.0
 tiktoken==0.7.0
+pytesseract==0.3.13

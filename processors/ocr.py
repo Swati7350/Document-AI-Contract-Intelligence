@@ -3,11 +3,12 @@ OCR processor — extracts real text from uploaded PDF/image.
 Returns page-level structure required by the RAG pipeline.
 
 PDF extraction: pypdf (existing)
-Image extraction: docling (real OCR with layout understanding)
+Image extraction: Docling (preferred), then Tesseract
 
-No fallback text. No hardcoded content.
-If the file yields no text, returns empty strings and the caller
-must inform the user rather than injecting synthetic content.
+No hardcoded content. Images are always run through a real OCR engine.
+If OCR engines are unavailable or fail, an error is raised instead of
+returning an empty string. If the engine runs but the image has no
+readable text, empty strings are returned and the caller informs the user.
 """
 from __future__ import annotations
 
@@ -15,10 +16,13 @@ import io
 import os
 import random
 import re
+import tempfile
 import time
+from pathlib import Path
 from typing import List, Tuple
 
-OCR_ENGINE = os.getenv("OCR_ENGINE", "mock")
+OCR_ENGINE = os.getenv("OCR_ENGINE", "docling").lower()
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp", ".bmp"}
 
 
 # ════════════════════════════════════════════════════════════════
@@ -41,8 +45,6 @@ def process_document(file_bytes: bytes, filename: str) -> dict:
             "filename":    str,
         }
     """
-    if OCR_ENGINE != "mock":
-        return _real_process(file_bytes, filename)
     return _extract_process(file_bytes, filename)
 
 
@@ -54,13 +56,13 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
     """Return full extracted text from file bytes."""
     if filename.lower().endswith(".pdf"):
         return _pdf_full_text(file_bytes)
-    # Images — use Docling OCR
-    return _docling_extract_text(file_bytes, filename)
+    text, _engine = _ocr_image(file_bytes, filename)
+    return text
 
 
-def extract_pages(file_bytes: bytes, filename: str) -> List[str]:
+def extract_pages(file_bytes: bytes, filename: str = "") -> List[str]:
     """Return per-page text list from a PDF or image."""
-    is_pdf = filename.lower().endswith(".pdf")
+    is_pdf = filename.lower().endswith(".pdf") if filename else True
     if is_pdf:
         try:
             from pypdf import PdfReader
@@ -68,9 +70,8 @@ def extract_pages(file_bytes: bytes, filename: str) -> List[str]:
             return [(p.extract_text() or "").strip() for p in reader.pages]
         except Exception:
             return []
-    # For images, extract with Docling and return as single-page list
-    text = _docling_extract_text(file_bytes, filename)
-    return [text] if text else []
+    text, _engine = _ocr_image(file_bytes, filename)
+    return [text]
 
 
 def _pdf_full_text(data: bytes) -> str:
@@ -87,45 +88,91 @@ def _pdf_full_text(data: bytes) -> str:
         return ""
 
 
+def _ocr_image(file_bytes: bytes, filename: str) -> Tuple[str, str]:
+    """
+    Run real OCR on image bytes.
+
+    Preference order: Docling, then Tesseract (unless OCR_ENGINE pins one).
+    Does not swallow engine failures into an empty string.
+    """
+    preferred = OCR_ENGINE if OCR_ENGINE in {"docling", "tesseract"} else "docling"
+    engines = (
+        [("tesseract", _tesseract_extract_text), ("docling", _docling_extract_text)]
+        if preferred == "tesseract"
+        else [("docling", _docling_extract_text), ("tesseract", _tesseract_extract_text)]
+    )
+
+    errors: List[str] = []
+    empty_engine = ""
+    for name, fn in engines:
+        try:
+            text = (fn(file_bytes, filename) or "").strip()
+            if text:
+                return text, name
+            empty_engine = name
+        except Exception as exc:
+            errors.append(f"{name}: {exc}")
+
+    if empty_engine:
+        return "", empty_engine
+
+    raise RuntimeError(
+        "Image OCR failed. Install Docling (`pip install docling`) or "
+        "Tesseract (`pip install pytesseract` plus the tesseract binary). "
+        + " | ".join(errors)
+    )
+
+
+def _document_to_text(document) -> str:
+    if hasattr(document, "export_to_text"):
+        text = document.export_to_text()
+        if text and str(text).strip():
+            return str(text).strip()
+    if hasattr(document, "export_to_markdown"):
+        return (document.export_to_markdown() or "").strip()
+    return str(document or "").strip()
+
+
 def _docling_extract_text(file_bytes: bytes, filename: str) -> str:
-    """
-    Extract text from an image using Docling OCR.
-    Returns empty string if extraction fails.
-    """
+    """Extract text from an image using Docling OCR."""
+    from docling.document_converter import DocumentConverter
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in _IMAGE_SUFFIXES:
+        suffix = ".png"
+
+    tmp_path = None
     try:
-        from docling.document_converter import DocumentConverter
-        from docling.dataclasses import InputFormat
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        result = DocumentConverter().convert(tmp_path)
+        if not result or not getattr(result, "document", None):
+            raise RuntimeError("Docling returned no document")
+        return _document_to_text(result.document)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
-        # Determine input format from filename
-        fname_lower = filename.lower()
-        if fname_lower.endswith(".pdf"):
-            input_format = InputFormat.PDF
-        elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
-            input_format = InputFormat.IMAGE
-        else:
-            return ""
 
-        # Convert bytes to in-memory file
-        converter = DocumentConverter()
-        result = converter.convert_bytes(file_bytes, source_format=input_format)
+def _tesseract_extract_text(file_bytes: bytes, filename: str) -> str:
+    """Extract text from an image using Tesseract OCR."""
+    import shutil
+    from PIL import Image
+    import pytesseract
 
-        # Extract markdown text and convert to plain text
-        if result and result.document:
-            text = result.document.export_to_markdown()
-            # Clean up markdown markers to get readable text
-            text = re.sub(r"#+ ", "", text)  # Remove headers
-            text = re.sub(r"\*\*", "", text)  # Remove bold
-            text = re.sub(r"\*", "", text)   # Remove italics
-            text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Convert links
-            return text.strip()
-    except ImportError:
-        # Docling not installed; graceful fallback
-        return ""
-    except Exception:
-        # OCR failed or other error
-        return ""
+    tesseract_cmd = shutil.which("tesseract")
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
-    return ""
+    image = Image.open(io.BytesIO(file_bytes))
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+    text = pytesseract.image_to_string(image)
+    return (text or "").strip()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -135,10 +182,16 @@ def _docling_extract_text(file_bytes: bytes, filename: str) -> str:
 def _extract_process(file_bytes: bytes, filename: str) -> dict:
     time.sleep(0.4)
     is_pdf = filename.lower().endswith(".pdf")
+    engine_used = "pypdf"
 
-    # Extract text: PDFs via pypdf, images via Docling
-    full_text  = extract_text(file_bytes, filename) if file_bytes else ""
-    page_strs  = extract_pages(file_bytes, filename) if file_bytes else []
+    full_text = ""
+    page_strs: List[str] = []
+    if file_bytes and is_pdf:
+        full_text = _pdf_full_text(file_bytes)
+        page_strs = extract_pages(file_bytes, filename)
+    elif file_bytes:
+        full_text, engine_used = _ocr_image(file_bytes, filename)
+        page_strs = [full_text]
 
     # Build structured page list
     pages_structured: List[dict] = []
@@ -177,7 +230,7 @@ def _extract_process(file_bytes: bytes, filename: str) -> dict:
     }
 
     return {
-        "engine":            f"pypdf+docling-{source}",
+        "engine":            f"{engine_used}-{source}",
         "filename":          filename,
         "full_text":         full_text,
         "pages":             pages_structured,          # [{page, text}, ...]
@@ -250,7 +303,4 @@ def _detect_tables(lines: List[str]) -> List[dict]:
 # ════════════════════════════════════════════════════════════════
 
 def _real_process(file_bytes: bytes, filename: str) -> dict:
-    raise NotImplementedError(
-        f"Real OCR engine '{OCR_ENGINE}' not configured. "
-        "Set OCR_ENGINE=docling or tesseract and implement this path."
-    )
+    return _extract_process(file_bytes, filename)

@@ -134,80 +134,54 @@ def _token_aware_chunk(
 
     This preserves table rows and invoice line items intact.
     """
-    try:
-        import tiktoken
-        encoding = tiktoken.get_encoding("gpt2")
-    except ImportError:
-        # Fallback: approximate tokens as words * 1.3 if tiktoken unavailable
-        encoding = None
+    import tiktoken
+    encoding = tiktoken.get_encoding("gpt2")
 
     def count_tokens(s: str) -> int:
-        if encoding:
-            return len(encoding.encode(s))
-        return int(len(s.split()) * 1.3)  # fallback approximation
+        return len(encoding.encode(s))
 
-    # Build cumulative token-count map for page assignment
-    page_token_boundaries: List[int] = []
-    cumulative = 0
-    for pg_text in pages:
-        page_token_boundaries.append(cumulative)
-        cumulative += count_tokens(pg_text)
+    def _page_for_line(line: str) -> int:
+        for idx, pg_text in enumerate(pages):
+            if line and line in pg_text:
+                return idx + 1
+        return 1
 
-    def _page_for_token(token_offset: int) -> int:
-        pg = 1
-        for idx, boundary in enumerate(page_token_boundaries):
-            if token_offset >= boundary:
-                pg = idx + 1
-        return pg
-
-    # Split into lines, preserving all content
+    # Split into lines, preserving all content (never split a table row)
     lines = [l.rstrip() for l in full_text.splitlines() if l.strip()]
 
-    chunks:        List[dict] = []
+    chunks: List[dict] = []
     current_lines: List[str] = []
-    current_tokens: int       = 0
-    token_offset:   int       = 0   # tracks position in full text for page tagging
+
+    def _count(parts: List[str]) -> int:
+        return count_tokens("\n".join(parts)) if parts else 0
 
     for line in lines:
-        line_tokens = count_tokens(line)
-
-        if current_tokens + line_tokens > CHUNK_SIZE_TOKENS and current_lines:
-            # Flush current chunk
+        if current_lines and _count(current_lines + [line]) > CHUNK_SIZE_TOKENS:
             chunk_text = "\n".join(current_lines)
-            chunk_start_offset = token_offset - current_tokens
             chunks.append({
-                "chunk_id": len(chunks),
-                "text":     chunk_text,
-                "page":     _page_for_token(chunk_start_offset),
-                "token_count": current_tokens,
+                "chunk_id":    len(chunks),
+                "text":        chunk_text,
+                "page":        _page_for_line(current_lines[0]),
+                "token_count": count_tokens(chunk_text),
             })
 
-            # Overlap: keep the last CHUNK_OVERLAP_TOKENS worth of lines
             overlap_lines: List[str] = []
-            overlap_tokens = 0
             for prev_line in reversed(current_lines):
-                pt = count_tokens(prev_line)
-                if overlap_tokens + pt > CHUNK_OVERLAP_TOKENS:
+                trial = [prev_line] + overlap_lines
+                if _count(trial) > CHUNK_OVERLAP_TOKENS:
                     break
-                overlap_lines.insert(0, prev_line)
-                overlap_tokens += pt
-
+                overlap_lines = trial
             current_lines = overlap_lines
-            current_tokens = overlap_tokens
 
         current_lines.append(line)
-        current_tokens += line_tokens
-        token_offset   += line_tokens
 
-    # Flush remaining lines
     if current_lines:
         chunk_text = "\n".join(current_lines)
-        chunk_start_offset = token_offset - current_tokens
         chunks.append({
-            "chunk_id": len(chunks),
-            "text":     chunk_text,
-            "page":     _page_for_token(chunk_start_offset),
-            "token_count": current_tokens,
+            "chunk_id":    len(chunks),
+            "text":        chunk_text,
+            "page":        _page_for_line(current_lines[0]),
+            "token_count": count_tokens(chunk_text),
         })
 
     if not chunks:
