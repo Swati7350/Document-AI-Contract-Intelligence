@@ -2,7 +2,10 @@
 OCR processor — extracts real text from uploaded PDF/image.
 Returns page-level structure required by the RAG pipeline.
 
-No sample documents. No fallback text. No hardcoded content.
+PDF extraction: pypdf (existing)
+Image extraction: docling (real OCR with layout understanding)
+
+No fallback text. No hardcoded content.
 If the file yields no text, returns empty strings and the caller
 must inform the user rather than injecting synthetic content.
 """
@@ -51,17 +54,23 @@ def extract_text(file_bytes: bytes, filename: str) -> str:
     """Return full extracted text from file bytes."""
     if filename.lower().endswith(".pdf"):
         return _pdf_full_text(file_bytes)
-    return ""   # images need a real OCR engine
+    # Images — use Docling OCR
+    return _docling_extract_text(file_bytes, filename)
 
 
-def extract_pages(file_bytes: bytes) -> List[str]:
-    """Return per-page text list from a PDF. Empty list for images."""
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(file_bytes))
-        return [(p.extract_text() or "").strip() for p in reader.pages]
-    except Exception:
-        return []
+def extract_pages(file_bytes: bytes, filename: str) -> List[str]:
+    """Return per-page text list from a PDF or image."""
+    is_pdf = filename.lower().endswith(".pdf")
+    if is_pdf:
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            return [(p.extract_text() or "").strip() for p in reader.pages]
+        except Exception:
+            return []
+    # For images, extract with Docling and return as single-page list
+    text = _docling_extract_text(file_bytes, filename)
+    return [text] if text else []
 
 
 def _pdf_full_text(data: bytes) -> str:
@@ -78,6 +87,47 @@ def _pdf_full_text(data: bytes) -> str:
         return ""
 
 
+def _docling_extract_text(file_bytes: bytes, filename: str) -> str:
+    """
+    Extract text from an image using Docling OCR.
+    Returns empty string if extraction fails.
+    """
+    try:
+        from docling.document_converter import DocumentConverter
+        from docling.dataclasses import InputFormat
+
+        # Determine input format from filename
+        fname_lower = filename.lower()
+        if fname_lower.endswith(".pdf"):
+            input_format = InputFormat.PDF
+        elif fname_lower.endswith((".png", ".jpg", ".jpeg")):
+            input_format = InputFormat.IMAGE
+        else:
+            return ""
+
+        # Convert bytes to in-memory file
+        converter = DocumentConverter()
+        result = converter.convert_bytes(file_bytes, source_format=input_format)
+
+        # Extract markdown text and convert to plain text
+        if result and result.document:
+            text = result.document.export_to_markdown()
+            # Clean up markdown markers to get readable text
+            text = re.sub(r"#+ ", "", text)  # Remove headers
+            text = re.sub(r"\*\*", "", text)  # Remove bold
+            text = re.sub(r"\*", "", text)   # Remove italics
+            text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Convert links
+            return text.strip()
+    except ImportError:
+        # Docling not installed; graceful fallback
+        return ""
+    except Exception:
+        # OCR failed or other error
+        return ""
+
+    return ""
+
+
 # ════════════════════════════════════════════════════════════════
 #  MAIN PROCESSOR
 # ════════════════════════════════════════════════════════════════
@@ -86,8 +136,9 @@ def _extract_process(file_bytes: bytes, filename: str) -> dict:
     time.sleep(0.4)
     is_pdf = filename.lower().endswith(".pdf")
 
+    # Extract text: PDFs via pypdf, images via Docling
     full_text  = extract_text(file_bytes, filename) if file_bytes else ""
-    page_strs  = extract_pages(file_bytes) if (file_bytes and is_pdf) else []
+    page_strs  = extract_pages(file_bytes, filename) if file_bytes else []
 
     # Build structured page list
     pages_structured: List[dict] = []
@@ -103,8 +154,7 @@ def _extract_process(file_bytes: bytes, filename: str) -> dict:
         text_blocks, tables = _build_ui_blocks(full_text)
         source = "extracted"
     else:
-        # Non-extractable file (scanned image, encrypted PDF, etc.)
-        # Return empty — UI must handle this gracefully
+        # Non-extractable file
         text_blocks = []
         tables      = []
         source      = "empty"
@@ -127,7 +177,7 @@ def _extract_process(file_bytes: bytes, filename: str) -> dict:
     }
 
     return {
-        "engine":            f"pypdf-{source}",
+        "engine":            f"pypdf+docling-{source}",
         "filename":          filename,
         "full_text":         full_text,
         "pages":             pages_structured,          # [{page, text}, ...]

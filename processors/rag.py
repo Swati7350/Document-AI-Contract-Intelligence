@@ -4,11 +4,11 @@ RAG processor — ChromaDB vector store, line-aware chunking.
 Source of truth: ONLY the text passed to embed_document().
 Zero hardcoded content. Zero sample documents. Zero fallbacks.
 
-Chunking:
-  CHUNK_SIZE    = 100 words
-  CHUNK_OVERLAP = 30 words
+Chunking (TOKEN-BASED, not word-based):
+  CHUNK_SIZE    = 100 tokens (using tiktoken GPT-2 encoding)
+  CHUNK_OVERLAP = 30 tokens
   Strategy: line-aware — never splits a table row or sentence mid-way
-  Each chunk: {"text", "page", "chunk_id"}
+  Each chunk: {"text", "page", "chunk_id", "token_count"}
 
 Retrieval: ChromaDB cosine, Top-K = 4
 Answer:    best-matching lines from retrieved chunks
@@ -23,8 +23,8 @@ import time
 from typing import List, Tuple
 
 ENABLE_REAL_LLM = os.getenv("ENABLE_REAL_LLM", "false").lower() == "true"
-CHUNK_SIZE      = 100   # words
-CHUNK_OVERLAP   = 30    # words
+CHUNK_SIZE_TOKENS = 100   # tokens (not words)
+CHUNK_OVERLAP_TOKENS = 30  # tokens
 TOP_K           = 4
 
 # ── Module-level vector store state ──────────────────────────────
@@ -44,7 +44,7 @@ def embed_document(
     pages: List[str] = None,
 ) -> dict:
     """
-    Chunk `text` and build an in-memory ChromaDB vector store.
+    Chunk `text` (token-based) and build an in-memory ChromaDB vector store.
 
     Args:
         text:   Full document text (from OCR).
@@ -75,7 +75,7 @@ def embed_document(
     )
 
     _doc_id = doc_id
-    _chunks = _line_aware_chunk(text, pages or [text])
+    _chunks = _token_aware_chunk(text, pages or [text])
 
     if not _chunks:
         return {"chunks_created": 0, "doc_id": doc_id}
@@ -112,90 +112,111 @@ def query(question: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════
-#  LINE-AWARE CHUNKING
+#  TOKEN-AWARE CHUNKING (100 tokens, 30-token overlap, line-preserving)
 # ════════════════════════════════════════════════════════════════
 
-def _line_aware_chunk(
+def _token_aware_chunk(
     full_text: str,
     pages: List[str],
 ) -> List[dict]:
     """
-    Build chunks that respect line/row boundaries.
+    Build chunks using token counting (tiktoken GPT-2 encoding).
+    Respects line/row boundaries — never splits a line mid-way.
 
     Strategy:
-    1. Split text into logical lines (non-empty stripped lines).
-    2. Accumulate lines into a chunk until CHUNK_SIZE words is reached.
+    1. Use tiktoken to count tokens precisely.
+    2. Split text into logical lines (non-empty stripped lines).
+    3. Accumulate lines until token count reaches CHUNK_SIZE.
        A line is never split — it either fits or starts a new chunk.
-    3. Apply CHUNK_OVERLAP by back-tracking: each new chunk starts
-       CHUNK_OVERLAP words before the previous chunk ended.
-    4. Tag each chunk with the page number it starts on.
+    4. Apply overlap by back-tracking: each new chunk starts
+       CHUNK_OVERLAP tokens before the previous chunk ended.
+    5. Tag each chunk with the page number it starts on.
 
     This preserves table rows and invoice line items intact.
     """
-    # Build cumulative word-count map for page assignment
-    page_word_boundaries: List[int] = []
+    try:
+        import tiktoken
+        encoding = tiktoken.get_encoding("gpt2")
+    except ImportError:
+        # Fallback: approximate tokens as words * 1.3 if tiktoken unavailable
+        encoding = None
+
+    def count_tokens(s: str) -> int:
+        if encoding:
+            return len(encoding.encode(s))
+        return int(len(s.split()) * 1.3)  # fallback approximation
+
+    # Build cumulative token-count map for page assignment
+    page_token_boundaries: List[int] = []
     cumulative = 0
     for pg_text in pages:
-        page_word_boundaries.append(cumulative)
-        cumulative += len(pg_text.split())
+        page_token_boundaries.append(cumulative)
+        cumulative += count_tokens(pg_text)
 
-    def _page_for_word(word_offset: int) -> int:
+    def _page_for_token(token_offset: int) -> int:
         pg = 1
-        for idx, boundary in enumerate(page_word_boundaries):
-            if word_offset >= boundary:
+        for idx, boundary in enumerate(page_token_boundaries):
+            if token_offset >= boundary:
                 pg = idx + 1
         return pg
 
     # Split into lines, preserving all content
     lines = [l.rstrip() for l in full_text.splitlines() if l.strip()]
 
-    chunks:       List[dict] = []
+    chunks:        List[dict] = []
     current_lines: List[str] = []
-    current_words: int       = 0
-    word_offset:   int       = 0   # tracks position in full text for page tagging
+    current_tokens: int       = 0
+    token_offset:   int       = 0   # tracks position in full text for page tagging
 
     for line in lines:
-        line_words = len(line.split())
+        line_tokens = count_tokens(line)
 
-        if current_words + line_words > CHUNK_SIZE and current_lines:
+        if current_tokens + line_tokens > CHUNK_SIZE_TOKENS and current_lines:
             # Flush current chunk
             chunk_text = "\n".join(current_lines)
-            chunk_start_offset = word_offset - current_words
+            chunk_start_offset = token_offset - current_tokens
             chunks.append({
                 "chunk_id": len(chunks),
                 "text":     chunk_text,
-                "page":     _page_for_word(chunk_start_offset),
+                "page":     _page_for_token(chunk_start_offset),
+                "token_count": current_tokens,
             })
 
-            # Overlap: keep the last CHUNK_OVERLAP words worth of lines
+            # Overlap: keep the last CHUNK_OVERLAP_TOKENS worth of lines
             overlap_lines: List[str] = []
-            overlap_words = 0
+            overlap_tokens = 0
             for prev_line in reversed(current_lines):
-                pw = len(prev_line.split())
-                if overlap_words + pw > CHUNK_OVERLAP:
+                pt = count_tokens(prev_line)
+                if overlap_tokens + pt > CHUNK_OVERLAP_TOKENS:
                     break
                 overlap_lines.insert(0, prev_line)
-                overlap_words += pw
+                overlap_tokens += pt
 
             current_lines = overlap_lines
-            current_words = overlap_words
+            current_tokens = overlap_tokens
 
         current_lines.append(line)
-        current_words += line_words
-        word_offset   += line_words
+        current_tokens += line_tokens
+        token_offset   += line_tokens
 
     # Flush remaining lines
     if current_lines:
         chunk_text = "\n".join(current_lines)
-        chunk_start_offset = word_offset - current_words
+        chunk_start_offset = token_offset - current_tokens
         chunks.append({
             "chunk_id": len(chunks),
             "text":     chunk_text,
-            "page":     _page_for_word(chunk_start_offset),
+            "page":     _page_for_token(chunk_start_offset),
+            "token_count": current_tokens,
         })
 
     if not chunks:
-        chunks = [{"chunk_id": 0, "text": full_text[:3000], "page": 1}]
+        chunks = [{
+            "chunk_id": 0,
+            "text": full_text[:3000],
+            "page": 1,
+            "token_count": count_tokens(full_text[:3000]),
+        }]
 
     return chunks
 
@@ -317,7 +338,7 @@ def _answer_from_chunks(question: str, chunks: List[dict]) -> dict:
     return {
         "answer":           answer,
         "retrieved_chunks": chunks,
-        "model":            f"chromadb+MiniLM | chunk={CHUNK_SIZE} overlap={CHUNK_OVERLAP}",
+        "model":            f"chromadb+MiniLM | chunk={CHUNK_SIZE_TOKENS}tok overlap={CHUNK_OVERLAP_TOKENS}tok",
         "doc_id":           _doc_id,
     }
 
@@ -326,7 +347,7 @@ def _not_found(chunks: List[dict]) -> dict:
     return {
         "answer":           "This information is not available in the uploaded document.",
         "retrieved_chunks": chunks,
-        "model":            f"chromadb+MiniLM | chunk={CHUNK_SIZE} overlap={CHUNK_OVERLAP}",
+        "model":            f"chromadb+MiniLM | chunk={CHUNK_SIZE_TOKENS}tok overlap={CHUNK_OVERLAP_TOKENS}tok",
         "doc_id":           _doc_id,
     }
 
