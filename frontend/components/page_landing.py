@@ -40,10 +40,11 @@ def render() -> None:
     fields — parties, dates, values, clauses — as clean JSON.
   </div>
   <ul class="lp-wf-bullets">
-    <li>📝 Text &amp; layout recognition</li>
-    <li>📊 Table &amp; bounding-box detection</li>
-    <li>🧩 JSON field extraction</li>
-    <li>🎛 Editable prompt studio</li>
+    <ul class="lp-wf-bullets">
+      <li>🧩 Structured JSON extraction</li>
+      <li>📑 Contract &amp; invoice field extraction</li>
+    </ul>
+        
   </ul>
 </div>
 """, unsafe_allow_html=True)
