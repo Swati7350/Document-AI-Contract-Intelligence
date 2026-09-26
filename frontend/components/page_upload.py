@@ -60,10 +60,10 @@ def render() -> None:
   <span style="font-size:.8rem;color:#94a3b8;margin-top:6px;display:block;">
     Contracts · invoices · scanned documents
   </span>
-</div>""", unsafe_allow_html=True)
+</div>"""  , unsafe_allow_html=True)
         return
 
-    # ── File received ─────────────────────────────────────────────────────────
+    # ── File received ────────────────────────────────────────────────────────
     # Only re-process if a new file is uploaded (different name or size)
     prev_name = st.session_state.get("doc_name", "")
     prev_size = st.session_state.get("_doc_size", 0)
@@ -93,7 +93,7 @@ def render() -> None:
   <span class="badge {'badge-green' if has_text else 'badge-orange'}" style="margin-left:auto;">
     {'✓ Text extracted' if has_text else '⚠ No text found'}
   </span>
-</div>""", unsafe_allow_html=True)
+</div>""" , unsafe_allow_html=True)
 
     if not has_text:
         st.warning(
@@ -121,7 +121,7 @@ def render() -> None:
 <div style="font-size:.78rem;font-weight:600;color:#64748b;
             text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;">
   Choose a workflow
-</div>""", unsafe_allow_html=True)
+</div>""" , unsafe_allow_html=True)
 
     col1, col2 = st.columns(2, gap="large")
 
@@ -131,7 +131,7 @@ def render() -> None:
   <div class="lp-wf-icon">🔍</div>
   <div class="lp-wf-title">OCR &amp; Extract</div>
   <div class="lp-wf-desc">Extract structured fields from the document.</div>
-</div>""", unsafe_allow_html=True)
+</div>""" , unsafe_allow_html=True)
         if st.button("Start OCR →", type="primary",
                      use_container_width=True, key="do_ocr"):
             _run_ocr(file_bytes, uploaded.name)
@@ -142,15 +142,15 @@ def render() -> None:
   <div class="lp-wf-icon">💬</div>
   <div class="lp-wf-title">Chat with Document</div>
   <div class="lp-wf-desc">Ask questions and get grounded answers with citations.</div>
-</div>""", unsafe_allow_html=True)
+</div>""" , unsafe_allow_html=True)
         if st.button("Start RAG →", type="primary",
                      use_container_width=True, key="do_rag"):
             _run_rag()
 
 
-# ══════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════
 #  DOCUMENT INGESTION
-# ══════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════
 
 def _ingest_document(file_bytes: bytes, filename: str, file_size: int) -> None:
     """
@@ -202,9 +202,9 @@ def _clear_document_state() -> None:
         st.session_state.pop(k, None)
 
 
-# ══════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════
 #  WORKFLOW RUNNERS
-# ══════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════
 
 def _run_ocr(file_bytes: bytes, filename: str) -> None:
     """Run OCR + structured extraction and navigate to OCR results page."""

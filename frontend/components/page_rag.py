@@ -65,9 +65,9 @@ def render() -> None:
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # ── Header ────────────────────────────────────────────────────────────────
+    # ── Header ──────────────────────────────────────────────────────────
     doc_name = st.session_state.get("doc_name",
-               st.session_state.get("uploaded_filename", "Uploaded document"))
+                st.session_state.get("uploaded_filename", "Uploaded document"))
     chunks_n = (st.session_state.get("vector_store") or {}).get("chunks_created", "?")
 
     st.markdown(
@@ -96,11 +96,11 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Chat history ──────────────────────────────────────────────────────────
+    # ── Chat history ────────────────────────────────────────────────────
     for msg in st.session_state.chat_history:
         _render_message(msg)
 
-    # ── Input form ────────────────────────────────────────────────────────────
+    # ── Input form ──────────────────────────────────────────────────────
     with st.form("rag_form", clear_on_submit=True):
         c1, c2 = st.columns([5, 1])
         with c1:
@@ -114,14 +114,14 @@ def render() -> None:
     if submitted and question.strip():
         _ask(question.strip())
 
-    # ── Controls ──────────────────────────────────────────────────────────────
+    # ── Controls ────────────────────────────────────────────────────────
     if st.session_state.chat_history:
         if st.button("🗑  Clear chat", type="secondary"):
             st.session_state.chat_history = []
             st.rerun()
 
 
-# ── Render helpers ────────────────────────────────────────────────────────────
+# ── Render helpers ──────────────────────────────────────────────────────
 
 def _render_message(msg: dict) -> None:
     role    = msg["role"]
