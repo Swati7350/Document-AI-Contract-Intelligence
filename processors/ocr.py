@@ -1,13 +1,18 @@
 """
-OCR & Layout Parsing processor.
-────────────────────────────────────────────────────────────────
-PDF text extraction : pypdf  (handles all standard PDF encodings)
-Image text          : returns demo fallback (real OCR engine needed)
-Demo fallback       : Beverage Sales Invoice — never the Service Agreement
-────────────────────────────────────────────────────────────────
+OCR processor — extracts real text from uploaded PDF/image.
+Returns page-level structure required by the RAG pipeline.
+
+No sample documents. No fallback text. No hardcoded content.
+If the file yields no text, returns empty strings and the caller
+must inform the user rather than injecting synthetic content.
 """
 from __future__ import annotations
-import io, os, re, time, random
+
+import io
+import os
+import random
+import re
+import time
 from typing import List, Tuple
 
 OCR_ENGINE = os.getenv("OCR_ENGINE", "mock")
@@ -18,147 +23,165 @@ OCR_ENGINE = os.getenv("OCR_ENGINE", "mock")
 # ══════════════════════════════════════════════════════════════════
 
 def process_document(file_bytes: bytes, filename: str) -> dict:
+    """
+    Extract text from the uploaded file and return a structured result.
+
+    Always returns:
+        {
+            "full_text":  str,             # all pages joined
+            "pages":      [{"page": int, "text": str}, ...],
+            "page_texts": [str, ...],      # parallel list for RAG
+            "text_blocks": [...],          # for OCR results UI
+            "tables":      [...],
+            "layout":      {...},
+            "engine":      str,
+            "filename":    str,
+        }
+    """
     if OCR_ENGINE != "mock":
         return _real_process(file_bytes, filename)
-    return _mock_process(file_bytes, filename)
+    return _extract_process(file_bytes, filename)
 
 
 # ══════════════════════════════════════════════════════════════════
-#  TEXT EXTRACTION
+#  TEXT EXTRACTION HELPERS  (public — used by RAG pipeline directly)
 # ══════════════════════════════════════════════════════════════════
 
 def extract_text(file_bytes: bytes, filename: str) -> str:
-    """
-    Public helper — returns plain text from any supported file.
-    Used by both OCR display pipeline and RAG embed pipeline.
-    """
-    fname = filename.lower()
-    if fname.endswith(".pdf"):
-        return _extract_pdf(file_bytes)
-    # Images require a real OCR engine; return empty so callers use demo
-    return ""
+    """Return full extracted text from file bytes."""
+    if filename.lower().endswith(".pdf"):
+        return _pdf_full_text(file_bytes)
+    return ""   # images need a real OCR engine
 
 
-def _extract_pdf(data: bytes) -> str:
-    """
-    Extract text from PDF bytes using pypdf.
-    Returns full text as a single string.
-    """
+def extract_pages(file_bytes: bytes) -> List[str]:
+    """Return per-page text list from a PDF. Empty list for images."""
     try:
         from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        pages  = []
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            if text.strip():
-                pages.append(text.strip())
-        return "\n\n".join(pages).strip()
-    except Exception:
-        return ""
-
-
-def extract_pages(data: bytes) -> List[str]:
-    """
-    Extract per-page text list from a PDF.
-    Returns ["page1 text", "page2 text", …].
-    """
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data))
-        pages  = []
-        for page in reader.pages:
-            text = (page.extract_text() or "").strip()
-            pages.append(text)
-        return pages if any(pages) else []
+        reader = PdfReader(io.BytesIO(file_bytes))
+        return [(p.extract_text() or "").strip() for p in reader.pages]
     except Exception:
         return []
 
 
+def _pdf_full_text(data: bytes) -> str:
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        parts  = []
+        for page in reader.pages:
+            t = (page.extract_text() or "").strip()
+            if t:
+                parts.append(t)
+        return "\n\n".join(parts).strip()
+    except Exception:
+        return ""
+
+
 # ══════════════════════════════════════════════════════════════════
-#  MOCK PROCESSOR — uses real extracted text, beverage demo fallback
+#  MAIN PROCESSOR
 # ══════════════════════════════════════════════════════════════════
 
-def _mock_process(file_bytes: bytes, filename: str) -> dict:
-    time.sleep(0.5)
+def _extract_process(file_bytes: bytes, filename: str) -> dict:
+    time.sleep(0.4)
     is_pdf = filename.lower().endswith(".pdf")
 
-    # ── Extract real text ─────────────────────────────────────────
-    real_text  = extract_text(file_bytes, filename) if file_bytes else ""
-    page_texts = extract_pages(file_bytes) if (file_bytes and is_pdf) else []
+    full_text  = extract_text(file_bytes, filename) if file_bytes else ""
+    page_strs  = extract_pages(file_bytes) if (file_bytes and is_pdf) else []
 
-    if real_text and len(real_text.strip()) > 40:
-        text_blocks, tables, full_text = _build_from_text(real_text)
+    # Build structured page list
+    pages_structured: List[dict] = []
+    if page_strs:
+        for i, pt in enumerate(page_strs):
+            if pt.strip():
+                pages_structured.append({"page": i + 1, "text": pt.strip()})
+    elif full_text:
+        pages_structured = [{"page": 1, "text": full_text}]
+
+    # Build UI text_blocks from extracted lines (no invented content)
+    if full_text:
+        text_blocks, tables = _build_ui_blocks(full_text)
         source = "extracted"
     else:
-        # No extractable text (scanned image / empty PDF) → beverage demo
-        full_text, text_blocks, tables = _beverage_demo()
-        page_texts = [full_text]
-        source = "demo"
+        # Non-extractable file (scanned image, encrypted PDF, etc.)
+        # Return empty — UI must handle this gracefully
+        text_blocks = []
+        tables      = []
+        source      = "empty"
 
     layout = {
-        "pages":            len(page_texts) if page_texts else (2 if is_pdf else 1),
+        "pages":            len(pages_structured) or 1,
         "columns_detected": 1,
         "stamps_seals":     [],
-        "headers_footers":  True,
+        "headers_footers":  bool(full_text),
         "tables_count":     len(tables),
         "signatures_count": 0,
         "bounding_boxes": [
-            {"id": 1, "label": "Heading",   "x": 0.10, "y": 0.05, "w": 0.80, "h": 0.06, "color": "#3b82f6"},
-            {"id": 2, "label": "Paragraph", "x": 0.08, "y": 0.14, "w": 0.84, "h": 0.22, "color": "#10b981"},
-            {"id": 3, "label": "Table",     "x": 0.08, "y": 0.40, "w": 0.84, "h": 0.30, "color": "#f59e0b"},
+            {"id": 1, "label": "Heading",   "x": 0.10, "y": 0.05,
+             "w": 0.80, "h": 0.06, "color": "#3b82f6"},
+            {"id": 2, "label": "Paragraph", "x": 0.08, "y": 0.14,
+             "w": 0.84, "h": 0.22, "color": "#10b981"},
+            {"id": 3, "label": "Table",     "x": 0.08, "y": 0.40,
+             "w": 0.84, "h": 0.30, "color": "#f59e0b"},
         ],
     }
 
     return {
-        "engine":            f"mock-{source}",
+        "engine":            f"pypdf-{source}",
         "filename":          filename,
-        "text_blocks":       text_blocks,
         "full_text":         full_text,
-        "page_texts":        page_texts or [full_text],   # always present
+        "pages":             pages_structured,          # [{page, text}, ...]
+        "page_texts":        [p["text"] for p in pages_structured],
+        "text_blocks":       text_blocks,
         "tables":            tables,
         "layout":            layout,
         "avg_confidence":    round(
-            sum(b["confidence"] for b in text_blocks) / max(len(text_blocks), 1), 3
-        ),
+            sum(b["confidence"] for b in text_blocks) /
+            max(len(text_blocks), 1), 3
+        ) if text_blocks else 0.0,
         "processing_time_ms": random.randint(300, 700),
     }
 
 
-def _build_from_text(text: str) -> Tuple[List[dict], List[dict], str]:
-    """Build text_blocks and tables from real extracted text."""
+# ══════════════════════════════════════════════════════════════════
+#  UI HELPERS  (build display blocks from real text)
+# ══════════════════════════════════════════════════════════════════
+
+def _build_ui_blocks(
+    text: str,
+) -> Tuple[List[dict], List[dict]]:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     text_blocks: List[dict] = []
-    for i, line in enumerate(lines[:30]):
-        block_type = "heading" if (i == 0 or line.isupper() or
-                                    (len(line) < 60 and line.endswith(":"))) \
-                     else "paragraph"
+    for i, line in enumerate(lines[:40]):
+        is_heading = (
+            i == 0
+            or line.isupper()
+            or (len(line) < 70 and line.endswith(":"))
+            or re.match(r"^\d+\.", line)
+        )
         text_blocks.append({
             "id":         i + 1,
-            "type":       block_type,
+            "type":       "heading" if is_heading else "paragraph",
             "text":       line,
             "confidence": round(random.uniform(0.88, 0.97), 2),
         })
 
     tables = _detect_tables(lines)
-    full_text = "\n".join(lines)
-    return text_blocks, tables, full_text
+    return text_blocks, tables
 
 
 def _detect_tables(lines: List[str]) -> List[dict]:
-    """Detect table rows: lines containing currency, digits+whitespace, or pipes."""
-    pattern = re.compile(r"(\$|₹|€|£|\d+\.\d{2}|\d+\s{3,}\d)")
-    table_lines = [l for l in lines if pattern.search(l) and len(l) > 8]
-    if len(table_lines) < 2:
+    pat = re.compile(r"(\$|₹|€|£|\d+\.\d{2}|\d+\s{3,}\d)")
+    tbl_lines = [l for l in lines if pat.search(l) and len(l) > 8]
+    if len(tbl_lines) < 2:
         return []
 
     rows = []
-    for l in table_lines[:10]:
-        # Split on 2+ spaces, tabs, or pipes
+    for l in tbl_lines[:12]:
         cols = [c.strip() for c in re.split(r"\s{2,}|\t|\|", l) if c.strip()]
         if cols:
             rows.append(cols)
-
     if not rows:
         return []
 
@@ -166,42 +189,10 @@ def _detect_tables(lines: List[str]) -> List[dict]:
     return [{
         "id":      1,
         "title":   "Extracted Table",
-        "headers": rows[0] if len(rows[0]) == max_cols else
-                   [f"Col {i+1}" for i in range(max_cols)],
+        "headers": rows[0] if len(rows[0]) == max_cols
+                   else [f"Col {i+1}" for i in range(max_cols)],
         "rows":    rows[1:] if len(rows[0]) == max_cols else rows,
     }]
-
-
-# ══════════════════════════════════════════════════════════════════
-#  BEVERAGE DEMO  — fallback ONLY for non-extractable uploads
-# ══════════════════════════════════════════════════════════════════
-
-def _beverage_demo() -> Tuple[str, List[dict], List[dict]]:
-    text_blocks = [
-        {"id":  1, "type": "heading",   "text": "Beverage Sales Invoice",                                "confidence": 0.99},
-        {"id":  2, "type": "paragraph", "text": "Beverage Distribution Co., 123 Market Street, Bengaluru","confidence": 0.97},
-        {"id":  3, "type": "paragraph", "text": "Invoice No: INV-2026-1048  |  Date: 24 Sep 2026",       "confidence": 0.97},
-        {"id":  4, "type": "paragraph", "text": "Coca-Cola 330ml   Qty: 12   Unit: $1.25   Amount: $15.00","confidence": 0.96},
-        {"id":  5, "type": "paragraph", "text": "Pepsi 330ml       Qty:  8   Unit: $1.20   Amount: $9.60", "confidence": 0.96},
-        {"id":  6, "type": "paragraph", "text": "Sprite 330ml      Qty: 10   Unit: $1.15   Amount: $11.50","confidence": 0.96},
-        {"id":  7, "type": "paragraph", "text": "Fanta Orange 330ml Qty: 6   Unit: $1.30   Amount: $7.80", "confidence": 0.95},
-        {"id":  8, "type": "paragraph", "text": "Red Bull 250ml    Qty:  5   Unit: $2.80   Amount: $14.00","confidence": 0.95},
-        {"id":  9, "type": "paragraph", "text": "Subtotal: $57.90  |  Tax (10%): $5.79  |  Total: $63.69","confidence": 0.97},
-        {"id": 10, "type": "paragraph", "text": "Payment Terms: Net 15 Days",                             "confidence": 0.98},
-    ]
-    tables = [{
-        "id": 1, "title": "Items Purchased",
-        "headers": ["Item", "Qty", "Unit Price", "Amount"],
-        "rows": [
-            ["Coca-Cola 330ml",     "12", "$1.25", "$15.00"],
-            ["Pepsi 330ml",          "8", "$1.20",  "$9.60"],
-            ["Sprite 330ml",        "10", "$1.15", "$11.50"],
-            ["Fanta Orange 330ml",   "6", "$1.30",  "$7.80"],
-            ["Red Bull 250ml",       "5", "$2.80", "$14.00"],
-        ],
-    }]
-    full_text = "\n".join(b["text"] for b in text_blocks)
-    return full_text, text_blocks, tables
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -209,4 +200,7 @@ def _beverage_demo() -> Tuple[str, List[dict], List[dict]]:
 # ══════════════════════════════════════════════════════════════════
 
 def _real_process(file_bytes: bytes, filename: str) -> dict:
-    raise NotImplementedError(f"Real OCR engine '{OCR_ENGINE}' not wired yet.")
+    raise NotImplementedError(
+        f"Real OCR engine '{OCR_ENGINE}' not configured. "
+        "Set OCR_ENGINE=docling or tesseract and implement this path."
+    )

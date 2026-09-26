@@ -130,20 +130,20 @@ def render() -> None:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💬  Switch to RAG Chat", type="secondary", use_container_width=True):
-            if not st.session_state.get("doc_embedded"):
-                from processors import rag as rag_proc
-                page_texts = ocr.get("page_texts") or [ocr["full_text"]]
-                with st.spinner("Embedding document for RAG…"):
-                    rag_proc.embed_document(
-                        ocr["full_text"],
-                        st.session_state.get("uploaded_filename", "doc"),
-                        pages=page_texts,
-                    )
-                st.session_state.doc_embedded = True
-                st.session_state.chat_history = []
-            # Always clear demo flag — we have a real uploaded document
-            st.session_state._rag_is_demo = False
-            st.session_state.page = "rag"
+            # Mark as embedded — page_rag.py will build the index on first visit
+            # using document_text / document_pages already in session state.
+            # Sync those keys from ocr_result if they're missing.
+            if not st.session_state.get("document_text"):
+                st.session_state.document_text  = ocr.get("full_text", "")
+                st.session_state.document_pages = ocr.get("pages", [])
+                st.session_state.doc_name       = st.session_state.get(
+                    "uploaded_filename", "doc"
+                )
+            st.session_state.doc_embedded  = True
+            st.session_state.vector_store  = None   # force re-embed on RAG page
+            st.session_state.chat_history  = []
+            st.session_state._rag_is_demo  = False
+            st.session_state.page          = "rag"
             st.rerun()
     with col2:
         if st.button("📤  Upload another document", type="secondary", use_container_width=True):
