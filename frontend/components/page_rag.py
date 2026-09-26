@@ -1,7 +1,6 @@
 """
 Contract RAG chat page.
-Clean ChatGPT-style interface — question input + AI answer + source chunks.
-Fixed: f-string nesting that caused syntax errors in the previous version.
+Uses the uploaded document as the retrieval source; never loads sample content.
 """
 import sys
 from pathlib import Path
@@ -12,43 +11,43 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from processors import rag as rag_proc
 
 EXAMPLE_QUESTIONS = [
-    "What is the total amount?",
-    "How many products were purchased?",
-    "What is the quantity of Coca-Cola?",
+    "What is the late fee?",
+    "What is the termination notice period?",
+    "Who is the supplier?",
     "What are the payment terms?",
-    "What is the invoice number?",
+    "What is the contract number?",
 ]
 
 
 def render() -> None:
-    # ── Ensure something is embedded ─────────────────────────────────────────
-    if not st.session_state.get("doc_embedded"):
-        from processors.rag import embed_sample_doc
-        with st.spinner("Loading sample invoice…"):
-            embed_sample_doc()
-        st.session_state.doc_embedded   = True
-        st.session_state.chat_history   = []
-        st.session_state._rag_is_demo   = True
-
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # ── Header ────────────────────────────────────────────────────────────────
-    fname = st.session_state.get("uploaded_filename", "Demo contract")
-    is_demo = st.session_state.get("_rag_is_demo", False)
+    document_text = st.session_state.get("document_text", "")
+    if document_text and not st.session_state.get("doc_embedded"):
+        doc_name = st.session_state.get("doc_name") or st.session_state.get("uploaded_filename", "document")
+        pages = st.session_state.get("document_pages") or [document_text]
+        with st.spinner("Embedding uploaded document…"):
+            rag_proc.embed_document(document_text, doc_name, pages=pages)
+        st.session_state.doc_embedded = True
+        st.session_state.chat_history = []
 
+    if not document_text:
+        st.warning("No document has been uploaded yet. Please upload a PDF and start the RAG flow.")
+        if st.button("← Upload a document"):
+            st.session_state.page = "upload"
+            st.rerun()
+        return
+
+    fname = st.session_state.get("doc_name") or st.session_state.get("uploaded_filename", "Uploaded document")
     st.markdown(
         '<div class="sec-header">'
         '<div class="sec-title">💬 Chat with Document</div>'
-        f'<div class="sec-sub">{"Demo contract loaded" if is_demo else fname} — ask anything about it.</div>'
+        f'<div class="sec-sub">{fname} — ask anything about it.</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    if is_demo:
-        st.info("📄 Sample document: **Beverage Sales Invoice — INV-2026-1048** (Beverage Distribution Co.). Upload your own PDF or image to chat with it instead.")
-
-    # ── Example questions ─────────────────────────────────────────────────────
     st.markdown(
         '<div style="font-size:.75rem;font-weight:600;color:#94a3b8;'
         'text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">'
@@ -63,18 +62,16 @@ def render() -> None:
 
     st.markdown("<hr style='border:none;border-top:1px solid #e2e8f0;margin:16px 0;'>", unsafe_allow_html=True)
 
-    # ── Chat history ──────────────────────────────────────────────────────────
     for msg in st.session_state.chat_history:
         _render_message(msg)
 
-    # ── Input form ────────────────────────────────────────────────────────────
     with st.form("rag_form", clear_on_submit=True):
         c1, c2 = st.columns([5, 1])
         with c1:
             question = st.text_input(
                 "question",
                 label_visibility="collapsed",
-                placeholder="Ask a question about the document…",
+                placeholder="Ask a question about the uploaded document…",
             )
         with c2:
             submitted = st.form_submit_button("Send →", use_container_width=True)
@@ -82,7 +79,6 @@ def render() -> None:
     if submitted and question.strip():
         _ask(question.strip())
 
-    # ── Clear ─────────────────────────────────────────────────────────────────
     if st.session_state.chat_history:
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
         if st.button("🗑  Clear chat", type="secondary"):
@@ -90,13 +86,10 @@ def render() -> None:
             st.rerun()
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _render_message(msg: dict) -> None:
-    """Render a single chat message without f-string nesting."""
-    role    = msg["role"]
+    role = msg["role"]
     content = msg["content"]
-    chunks  = msg.get("chunks", [])
+    chunks = msg.get("chunks", [])
 
     if role == "user":
         st.markdown(
@@ -107,13 +100,13 @@ def _render_message(msg: dict) -> None:
             unsafe_allow_html=True,
         )
     else:
-        # Build chunk cards separately — no nested f-strings
         chunk_html = ""
         for j, c in enumerate(chunks):
-            snippet = c["text"][:280] + ("…" if len(c["text"]) > 280 else "")
+            snippet = c.get("text", "")[:280] + ("…" if len(c.get("text", "")) > 280 else "")
+            page = c.get("page", 1)
             chunk_html += (
                 '<div class="chunk-card">'
-                f'<div class="chunk-label">📎 Source Chunk {j + 1}</div>'
+                f'<div class="chunk-label">📎 Source Chunk {j + 1} · Page {page}</div>'
                 f'{snippet}'
                 '</div>'
             )
@@ -135,8 +128,8 @@ def _ask(question: str) -> None:
     with st.spinner("Thinking…"):
         resp = rag_proc.query(question)
     st.session_state.chat_history.append({
-        "role":    "assistant",
+        "role": "assistant",
         "content": resp["answer"],
-        "chunks":  resp.get("retrieved_chunks", []),
+        "chunks": resp.get("retrieved_chunks", []),
     })
     st.rerun()
