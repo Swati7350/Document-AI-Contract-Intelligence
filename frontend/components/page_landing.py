@@ -3,27 +3,27 @@ import streamlit as st
 
 def render() -> None:
 
-  # ── Hero ──────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="lp-hero">
-  <div class="lp-hero-badge">📄 &nbsp; AI-Powered Document Intelligence</div>
+      # ── Hero ──────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="lp-hero">
+      <div class="lp-hero-badge">📄 &nbsp; AI-Powered Document Intelligence</div>
 
-  <h1 class="lp-hero-title">
-    Document AI &amp;<br>Contract Intelligence
-  </h1>
+      <h1 class="lp-hero-title">
+        Document AI &amp;<br>Contract Intelligence
+      </h1>
 
-  <p class="lp-hero-sub">
-    Upload a PDF or scanned image and choose one workflow.
-  </p>
+      <p class="lp-hero-sub">
+        Upload a PDF or scanned image and choose one workflow.
+      </p>
 
-  <div style="margin-top:10px;font-size:0.82rem;color:rgba(255,255,255,.82);
-              line-height:1.5;max-width:560px;margin-left:auto;margin-right:auto;">
-    <strong>Portfolio Demo</strong> — A streamlined showcase of core OCR, RAG,
-    and Document Intelligence capabilities. The production version includes
-    additional enterprise features and integrations.
-  </div>
-</div>
-""", unsafe_allow_html=True)
+      <div style="margin-top:10px;font-size:0.82rem;color:rgba(255,255,255,.82);
+                  line-height:1.5;max-width:560px;margin-left:auto;margin-right:auto;">
+        <strong>Portfolio Demo</strong> — A streamlined showcase of core OCR, RAG,
+        and Document Intelligence capabilities. The production version includes
+        additional enterprise features and integrations.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
     # ── Two workflow cards ─────────────────────────────────────────────────────
     st.markdown('<div class="lp-cards-row">', unsafe_allow_html=True)
 
