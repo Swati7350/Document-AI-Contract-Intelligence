@@ -1,0 +1,13 @@
+streamlit==1.35.0
+Pillow==10.3.0
+plotly==5.22.0
+pandas==2.2.2
+python-dotenv==1.0.1
+requests==2.32.3
+chromadb==0.5.3
+numpy==1.26.4
+pypdf==4.3.1
+reportlab==4.2.2
+docling>=2.130.0
+tiktoken>=0.9.0
+pytesseract==0.3.13

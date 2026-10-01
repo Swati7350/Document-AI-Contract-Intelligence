@@ -1,0 +1,21 @@
+Beverage Sales Invoice
+Beverage Distribution Co.
+123 Market Street, Bengaluru
+
+Invoice No: INV-2026-1048
+Invoice Date: 24 Sep 2026
+
+Items purchased:
+Item               Qty  Unit Price  Amount
+Coca-Cola 330ml     12  $1.25       $15.00
+Pepsi 330ml          8  $1.20       $9.60
+Sprite 330ml        10  $1.15       $11.50
+Fanta Orange 330ml   6  $1.30       $7.80
+Red Bull 250ml       5  $2.80       $14.00
+
+Subtotal: $57.90
+Tax: $5.79
+Total: $63.69
+
+Payment Terms: Net 15 Days
+Vendor: Beverage Distribution Co., 123 Market Street, Bengaluru
