@@ -1,9 +1,8 @@
 """
-OCR Results page — full extracted text + raw JSON output.
+OCR Results page — full extracted text and detected tables.
 No fixed schema cards (Parties, Contract Value, Term, etc.).
 Table contents are shown when detected, with headers read from the document.
 """
-import json
 import streamlit as st
 
 
@@ -74,15 +73,8 @@ def render() -> None:
             df = pd.DataFrame(padded, columns=headers if headers else None)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # ── Raw JSON output ───────────────────────────────────────────────────────
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
-    raw_json = {"full_text": full_text}
-    if tables:
-        raw_json["tables"] = tables
-
-    with st.expander("{ }  Raw JSON output", expanded=False):
-        st.code(json.dumps(raw_json, indent=2), language="json")
+    # ── Raw JSON output — removed per UX spec (full_text shown above) ─────────
+    # Raw JSON expander intentionally omitted.
 
     # ── Actions ───────────────────────────────────────────────────────────────
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)

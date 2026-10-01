@@ -32,17 +32,27 @@ def render() -> None:
     )
 
     # ── Sample PDF download (demo asset only — not loaded into RAG) ───────────
-    sample_path = ROOT / "assets" / "sample_beverage_invoice.pdf"
+    sample_path = ROOT / "assets" / "sample_contract.pdf"
     if sample_path.exists():
         col_dl, _ = st.columns([2, 3])
         with col_dl:
             st.download_button(
-                label="⬇️  Download sample PDF to try",
+                label="⬇️  Download sample contract PDF to try",
                 data=sample_path.read_bytes(),
-                file_name="sample_beverage_invoice.pdf",
+                file_name="sample_contract.pdf",
                 mime="application/pdf",
                 use_container_width=True,
             )
+
+    # ── File size disclaimer ──────────────────────────────────────────────────
+    st.markdown(
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
+        'padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#1e40af;">'
+        'ℹ️  <b>Recommended:</b> Upload a PDF file under <b>30 KB</b> for best results. '
+        'Larger files may take longer to process.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     uploaded = st.file_uploader(
         "file",

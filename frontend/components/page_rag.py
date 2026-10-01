@@ -16,11 +16,9 @@ sys.path.insert(0, str(ROOT))
 from processors import rag as rag_proc
 
 EXAMPLE_QUESTIONS = [
-    "What is the total amount?",
-    "What are the payment terms?",
-    "Who is the supplier?",
-    "What is the invoice number?",
-    "What is the late fee?",
+    "Who is Party A?",
+    "What is the project duration?",
+    "What is the purpose and scope?",
 ]
 
 

@@ -25,7 +25,7 @@ from typing import List, Tuple
 ENABLE_REAL_LLM = os.getenv("ENABLE_REAL_LLM", "false").lower() == "true"
 CHUNK_SIZE_TOKENS = 100   # tokens (not words)
 CHUNK_OVERLAP_TOKENS = 30  # tokens
-TOP_K           = 4
+TOP_K           = 3
 
 # ── Module-level vector store state ──────────────────────────────
 _client:     object = None
