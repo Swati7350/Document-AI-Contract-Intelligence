@@ -207,9 +207,10 @@ def _clear_document_state() -> None:
 # ════════════════════════════════════════════════════════════════
 
 def _run_ocr(file_bytes: bytes, filename: str) -> None:
-    """Run OCR + structured extraction and navigate to OCR results page."""
+    """Run OCR and navigate to OCR results page.
+    No structured field extraction — the OCR page shows raw full_text only.
+    """
     from processors import ocr as ocr_proc
-    from processors import extractor
 
     with st.spinner("Running OCR…"):
         ocr_result = ocr_proc.process_document(file_bytes, filename)
@@ -220,9 +221,8 @@ def _run_ocr(file_bytes: bytes, filename: str) -> None:
         st.session_state.document_text  = ocr_result["full_text"]
         st.session_state.document_pages = ocr_result.get("pages", [])
 
-    with st.spinner("Extracting structured fields…"):
-        ext_result = extractor.extract(ocr_result["full_text"])
-    st.session_state.extraction_result = ext_result
+    # Clear any stale extraction result from a previous run
+    st.session_state.pop("extraction_result", None)
 
     st.session_state.page = "ocr"
     st.rerun()

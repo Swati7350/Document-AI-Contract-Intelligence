@@ -275,26 +275,64 @@ def _build_ui_blocks(
 
 
 def _detect_tables(lines: List[str]) -> List[dict]:
+    """
+    Detect tabular sections and extract them with headers taken directly from
+    the document.  A header row is the first row whose cells are all non-numeric
+    (i.e. look like column labels rather than data).  If no such row exists the
+    first row of the candidate block is used as-is.
+    """
     pat = re.compile(r"(\$|₹|€|£|\d+\.\d{2}|\d+\s{3,}\d)")
+
+    # Collect candidate lines: contain numbers/currency and are long enough
     tbl_lines = [l for l in lines if pat.search(l) and len(l) > 8]
     if len(tbl_lines) < 2:
         return []
 
-    rows = []
+    # Also look for a header line just before the first numeric line
+    first_idx = lines.index(tbl_lines[0]) if tbl_lines[0] in lines else -1
+    header_candidate = None
+    if first_idx > 0:
+        prev = lines[first_idx - 1]
+        # A header line: reasonably long, no currency/numbers-only tokens
+        if len(prev) > 4 and not re.search(r"\d+\.\d{2}", prev):
+            cols_prev = [c.strip() for c in re.split(r"\s{2,}|\t|\|", prev) if c.strip()]
+            if len(cols_prev) >= 2:
+                header_candidate = cols_prev
+
+    # Split each candidate line into columns
+    rows: List[List[str]] = []
     for l in tbl_lines[:12]:
         cols = [c.strip() for c in re.split(r"\s{2,}|\t|\|", l) if c.strip()]
         if cols:
             rows.append(cols)
+
     if not rows:
         return []
 
     max_cols = max(len(r) for r in rows)
+
+    # Determine headers:
+    # 1. Use the line before the table if it has the right column count
+    # 2. Otherwise use the first data row if all its cells look like labels
+    # 3. Otherwise fall back to the first row regardless
+    def _looks_like_header(row: List[str]) -> bool:
+        return all(not re.fullmatch(r"[\$₹€£\d,\.\s]+", cell) for cell in row)
+
+    if header_candidate and len(header_candidate) == max_cols:
+        headers = header_candidate
+        data_rows = rows
+    elif _looks_like_header(rows[0]):
+        headers = rows[0]
+        data_rows = rows[1:]
+    else:
+        headers = rows[0]
+        data_rows = rows[1:]
+
     return [{
         "id":      1,
         "title":   "Extracted Table",
-        "headers": rows[0] if len(rows[0]) == max_cols
-                   else [f"Col {i+1}" for i in range(max_cols)],
-        "rows":    rows[1:] if len(rows[0]) == max_cols else rows,
+        "headers": headers,
+        "rows":    data_rows,
     }]
 
 
